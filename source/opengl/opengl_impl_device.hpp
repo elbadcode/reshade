@@ -104,7 +104,6 @@ namespace reshade::opengl
 		std::vector<GLuint> _reserved_texture_names;
 
 		GLuint _mipmap_program = 0;
-		GLuint _mipmap_sampler = 0;
 
 		struct map_info
 		{
@@ -112,7 +111,6 @@ namespace reshade::opengl
 			api::subresource_box box;
 			api::map_access access;
 		};
-
 		std::unordered_map<size_t, map_info> _map_lookup;
 
 		std::atomic<uint64_t> _fbo_lookup_version = 0;

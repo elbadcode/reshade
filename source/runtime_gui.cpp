@@ -1107,18 +1107,21 @@ void reshade::runtime::draw_gui()
 
 		ImGui::TextUnformatted("ReShade " VERSION_STRING_PRODUCT);
 
-		if ((s_latest_version[0] > VERSION_MAJOR) ||
-			(s_latest_version[0] == VERSION_MAJOR && s_latest_version[1] > VERSION_MINOR) ||
-			(s_latest_version[0] == VERSION_MAJOR && s_latest_version[1] == VERSION_MINOR && s_latest_version[2] > VERSION_REVISION))
+		if (_reload_count <= 1 || _tutorial_index == 0)
 		{
-			ImGui::TextColored(COLOR_YELLOW, _(
-				"An update is available! Please visit %s and install the new version (v%u.%u.%u)."),
-				"https://reshade.me",
-				s_latest_version[0], s_latest_version[1], s_latest_version[2]);
-		}
-		else
-		{
-			ImGui::Text(_("Visit %s for news, updates, effects and discussion."), "https://reshade.me");
+			if ((s_latest_version[0] > VERSION_MAJOR) ||
+				(s_latest_version[0] == VERSION_MAJOR && s_latest_version[1] > VERSION_MINOR) ||
+				(s_latest_version[0] == VERSION_MAJOR && s_latest_version[1] == VERSION_MINOR && s_latest_version[2] > VERSION_REVISION))
+			{
+				ImGui::TextColored(COLOR_YELLOW, _(
+					"An update is available! Please visit %s and install the new version (v%u.%u.%u)."),
+					"https://reshade.me",
+					s_latest_version[0], s_latest_version[1], s_latest_version[2]);
+			}
+			else
+			{
+				ImGui::Text(_("Visit %s for news, updates, effects and discussion."), "https://reshade.me");
+			}
 		}
 
 		ImGui::Spacing();
@@ -1283,7 +1286,20 @@ void reshade::runtime::draw_gui()
 			const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 			struct tm tm; localtime_s(&tm, &t);
 
-			const int temp_size = ImFormatString(temp, sizeof(temp), _clock_format != 0 ? "%02u:%02u:%02u" : "%02u:%02u", tm.tm_hour, tm.tm_min, tm.tm_sec);
+			int temp_size;
+			switch (_clock_format)
+			{
+			default:
+			case 0:
+				temp_size = ImFormatString(temp, sizeof(temp), "%02d:%02d", tm.tm_hour, tm.tm_min);
+				break;
+			case 1:
+				temp_size = ImFormatString(temp, sizeof(temp), "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+				break;
+			case 2:
+				temp_size = ImFormatString(temp, sizeof(temp), "%.4d-%.2d-%.2d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+				break;
+			}
 			if (_fps_pos % 2) // Align text to the right of the window
 				ImGui::SetCursorPosX(content_width - ImGui::CalcTextSize(temp, temp + temp_size).x + _imgui_context->Style.ItemSpacing.x);
 			ImGui::TextUnformatted(temp, temp + temp_size);
@@ -2499,7 +2515,7 @@ void reshade::runtime::draw_gui_settings()
 			}
 
 			if (_show_clock)
-				modified |= ImGui::Combo(_("Clock format"), reinterpret_cast<int *>(&_clock_format), "HH:mm\0HH:mm:ss\0");
+				modified |= ImGui::Combo(_("Clock format"), reinterpret_cast<int *>(&_clock_format), "HH:mm\0HH:mm:ss\0yyyy-MM-dd HH:mm:ss\0");
 
 			modified |= ImGui::SliderFloat(_("OSD text size"), &_fps_scale, 0.2f, 2.5f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 			modified |= ImGui::ColorEdit4(_("OSD text color"), _fps_col, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview);
@@ -2559,9 +2575,11 @@ void reshade::runtime::draw_gui_statistics()
 		ImGui::TextUnformatted(_("Hardware:"));
 		ImGui::TextUnformatted(_("Application:"));
 		ImGui::TextUnformatted(_("Time:"));
-		ImGui::Text(_("Frame %llu:"), _frame_count + 1);
 #if RESHADE_FX
 		ImGui::TextUnformatted(_("Resolution:"));
+#endif
+		ImGui::Text(_("Frame %llu:"), _frame_count + 1);
+#if RESHADE_FX
 		ImGui::TextUnformatted(_("Post-Processing:"));
 #endif
 
@@ -2598,10 +2616,12 @@ void reshade::runtime::draw_gui_statistics()
 		else
 			ImGui::TextUnformatted("Unknown");
 		ImGui::TextUnformatted(g_target_executable_path.filename().u8string().c_str());
-		ImGui::Text("%d-%d-%d %d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec);
-		ImGui::Text("%.2f fps", _imgui_context->IO.Framerate);
+		ImGui::Text("%.4d-%.2d-%.2d %d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec);
 #if RESHADE_FX
 		ImGui::Text("%ux%u", _effect_width, _effect_height);
+#endif
+		ImGui::Text("%.2f fps", _imgui_context->IO.Framerate);
+#if RESHADE_FX
 		ImGui::Text("%*.3f ms CPU", cpu_digits + 4, post_processing_time_cpu * 1e-6f);
 #endif
 
@@ -2616,9 +2636,11 @@ void reshade::runtime::draw_gui_statistics()
 			ImGui::TextUnformatted("Unknown");
 		ImGui::Text("0x%X", std::hash<std::string>()(g_target_executable_path.stem().u8string()) & 0xFFFFFFFF);
 		ImGui::Text("%.0f ms", std::chrono::duration_cast<std::chrono::nanoseconds>(_last_present_time - _start_time).count() * 1e-6f);
+#if RESHADE_FX
+		ImGui::Text("format %u (%u bpc)", _effect_color_format, api::format_bit_depth(_effect_color_format));
+#endif
 		ImGui::Text("%*.3f ms", gpu_digits + 4, _last_frame_duration.count() * 1e-6f);
 #if RESHADE_FX
-		ImGui::Text("format %u", _effect_color_format);
 		if (_gather_gpu_statistics && post_processing_time_gpu != 0)
 			ImGui::Text("%*.3f ms GPU", gpu_digits + 4, (post_processing_time_gpu * 1e-6f));
 #endif
@@ -4253,10 +4275,10 @@ void reshade::runtime::draw_technique_editor()
 					ImGui::Separator();
 
 					std::string entry_point_name;
-					for (const reshadefx::entry_point &entry_point : effect.module.entry_points)
-						if (const auto assembly_it = effect.assembly_text.find(entry_point.name);
-							assembly_it != effect.assembly_text.end() && ImGui::MenuItem(entry_point.name.c_str()))
-							entry_point_name = entry_point.name;
+					for (const std::pair<std::string, reshadefx::shader_type> &entry_point : effect.module.entry_points)
+						if (const auto assembly_it = effect.assembly_text.find(entry_point.first);
+							assembly_it != effect.assembly_text.end() && ImGui::MenuItem(entry_point.first.c_str()))
+							entry_point_name = entry_point.first;
 
 					ImGui::EndPopup();
 
@@ -4535,60 +4557,25 @@ bool reshade::runtime::init_imgui_resources()
 	if (_imgui_pipeline != 0)
 		return true;
 
-	api::shader_desc vs_desc, ps_desc;
+	const bool is_possibe_hdr_swapchain =
+		((_renderer_id & 0xB000) == 0xB000 || (_renderer_id & 0xC000) == 0xC000 || (_renderer_id & 0x20000) == 0x20000) &&
+		(_back_buffer_format == reshade::api::format::r10g10b10a2_unorm || _back_buffer_format == reshade::api::format::b10g10r10a2_unorm || _back_buffer_format == reshade::api::format::r16g16b16a16_float);
 
-	if ((_renderer_id & 0xF0000) == 0 || _renderer_id >= 0x20000)
-	{
-		const bool is_possibe_hdr_swapchain =
-			((_renderer_id & 0xB000) == 0xB000 || (_renderer_id & 0xC000) == 0xC000 || (_renderer_id & 0x20000) == 0x20000) &&
-			(_back_buffer_format == reshade::api::format::r10g10b10a2_unorm || _back_buffer_format == reshade::api::format::b10g10r10a2_unorm || _back_buffer_format == reshade::api::format::r16g16b16a16_float);
+	const resources::data_resource vs_res = resources::load_data_resource(
+		_renderer_id >= 0x20000 ? IDR_IMGUI_VS_SPIRV :
+		_renderer_id >= 0x10000 ? IDR_IMGUI_VS_GLSL :
+		_renderer_id >= 0x0a000 ? IDR_IMGUI_VS_4_0 : IDR_IMGUI_VS_3_0);
+	api::shader_desc vs_desc;
+	vs_desc.code = vs_res.data;
+	vs_desc.code_size = vs_res.data_size;
 
-		const resources::data_resource vs_res = resources::load_data_resource(_renderer_id >= 0x20000 ? IDR_IMGUI_VS_SPIRV : _renderer_id < 0xa000 ? IDR_IMGUI_VS_3_0 : IDR_IMGUI_VS_4_0);
-		vs_desc.code = vs_res.data;
-		vs_desc.code_size = vs_res.data_size;
-
-		const resources::data_resource ps_res = resources::load_data_resource(_renderer_id >= 0x20000 ? !is_possibe_hdr_swapchain ? IDR_IMGUI_PS_SPIRV : IDR_IMGUI_PS_SPIRV_HDR : _renderer_id < 0xa000 ? IDR_IMGUI_PS_3_0 : !is_possibe_hdr_swapchain ? IDR_IMGUI_PS_4_0 : IDR_IMGUI_PS_4_0_HDR);
-		ps_desc.code = ps_res.data;
-		ps_desc.code_size = ps_res.data_size;
-	}
-	else
-	{
-		assert(_device->get_api() == api::device_api::opengl);
-
-		// These need to be static so that the shader source memory doesn't fall out of scope before pipeline creation below
-		static const char vertex_shader_code[] =
-			"#version 430\n"
-			"layout(binding = 0) uniform Buf { mat4 proj; };\n"
-			"layout(location = 0) in vec2 pos;\n"
-			"layout(location = 1) in vec2 tex;\n"
-			"layout(location = 2) in vec4 col;\n"
-			"out vec4 frag_col;\n"
-			"out vec2 frag_tex;\n"
-			"void main()\n"
-			"{\n"
-			"	frag_col = col;\n"
-			"	frag_tex = tex;\n"
-			"	gl_Position = proj * vec4(pos.xy, 0, 1);\n"
-			"}\n";
-		static const char fragment_shader_code[] =
-			"#version 430\n"
-			"layout(binding = 0) uniform sampler2D s0;\n"
-			"in vec4 frag_col;\n"
-			"in vec2 frag_tex;\n"
-			"out vec4 col;\n"
-			"void main()\n"
-			"{\n"
-			"	col = frag_col * texture(s0, frag_tex.st);\n"
-			"}\n";
-
-		vs_desc.code = vertex_shader_code;
-		vs_desc.code_size = sizeof(vertex_shader_code);
-		vs_desc.entry_point = "main";
-
-		ps_desc.code = fragment_shader_code;
-		ps_desc.code_size = sizeof(fragment_shader_code);
-		ps_desc.entry_point = "main";
-	}
+	const resources::data_resource ps_res = resources::load_data_resource(
+		_renderer_id >= 0x20000 ? (!is_possibe_hdr_swapchain ? IDR_IMGUI_PS_SPIRV : IDR_IMGUI_PS_SPIRV_HDR) :
+		_renderer_id >= 0x10000 ? IDR_IMGUI_PS_GLSL :
+		_renderer_id >= 0x0a000 ? (!is_possibe_hdr_swapchain ? IDR_IMGUI_PS_4_0 : IDR_IMGUI_PS_4_0_HDR) : IDR_IMGUI_PS_3_0);
+	api::shader_desc ps_desc;
+	ps_desc.code = ps_res.data;
+	ps_desc.code_size = ps_res.data_size;
 
 	std::vector<api::pipeline_subobject> subobjects;
 	subobjects.push_back({ api::pipeline_subobject_type::vertex_shader, 1, &vs_desc });

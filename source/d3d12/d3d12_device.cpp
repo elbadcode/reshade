@@ -116,13 +116,16 @@ HRESULT STDMETHODCALLTYPE D3D12Device::QueryInterface(REFIID riid, void **ppvObj
 		if (ID3D12DeviceDownlevel *downlevel = nullptr; // Not a 'com_ptr' since D3D12DeviceDownlevel will take ownership
 			_downlevel == nullptr && SUCCEEDED(_orig->QueryInterface(&downlevel)))
 			_downlevel = new D3D12DeviceDownlevel(this, downlevel);
+
 		if (_downlevel != nullptr)
 			return _downlevel->QueryInterface(riid, ppvObj);
+		else
+			return E_NOINTERFACE;
 	}
 
 	// Unimplemented interfaces:
-	//   ID3D12DebugDevice  {3FEBD6DD-4973-4787-8194-E45f9E28923E}
-	//   ID3D12DebugDevice1 {A9b71770-D099-4A65-A698-3DEE10020f88}
+	//   ID3D12DebugDevice  {3FEBD6DD-4973-4787-8194-E45F9E28923E}
+	//   ID3D12DebugDevice1 {A9B71770-D099-4A65-A698-3DEE10020F88}
 	//   ID3D12DebugDevice2 {60ECCBC1-378D-4DF1-894C-F8AC5CE4D7DD}
 
 	return _orig->QueryInterface(riid, ppvObj);
@@ -2236,7 +2239,8 @@ bool D3D12Device::invoke_create_and_init_pipeline_event(const D3D12_STATE_OBJECT
 		}
 	}
 
-	subobjects.push_back({ reshade::api::pipeline_subobject_type::libraries, static_cast<uint32_t>(libraries.size()), libraries.data() });
+	if (!libraries.empty())
+		subobjects.push_back({ reshade::api::pipeline_subobject_type::libraries, static_cast<uint32_t>(libraries.size()), libraries.data() });
 
 	if (!pixel_desc.empty())
 		subobjects.push_back({ reshade::api::pipeline_subobject_type::pixel_shader, static_cast<uint32_t>(pixel_desc.size()), pixel_desc.data() });

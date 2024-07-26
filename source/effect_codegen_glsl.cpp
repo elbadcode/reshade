@@ -69,7 +69,7 @@ private:
 	bool _uses_componentwise_and = false;
 	bool _uses_componentwise_cond = false;
 
-	void write_result(module &module) override
+	void write_result(effect_module &module) override
 	{
 		module = std::move(_module);
 
@@ -104,6 +104,9 @@ private:
 				"vec2 compCond(bvec2 cond, vec2 a, vec2 b) { return vec2(cond.x ? a.x : b.x, cond.y ? a.y : b.y); }\n"
 				"vec3 compCond(bvec3 cond, vec3 a, vec3 b) { return vec3(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z); }\n"
 				"vec4 compCond(bvec4 cond, vec4 a, vec4 b) { return vec4(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z, cond.w ? a.w : b.w); }\n"
+				"bvec2 compCond(bvec2 cond, bvec2 a, bvec2 b) { return bvec2(cond.x ? a.x : b.x, cond.y ? a.y : b.y); }\n"
+				"bvec3 compCond(bvec3 cond, bvec3 a, bvec3 b) { return bvec3(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z); }\n"
+				"bvec4 compCond(bvec4 cond, bvec4 a, bvec4 b) { return bvec4(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z, cond.w ? a.w : b.w); }\n"
 				"ivec2 compCond(bvec2 cond, ivec2 a, ivec2 b) { return ivec2(cond.x ? a.x : b.x, cond.y ? a.y : b.y); }\n"
 				"ivec3 compCond(bvec3 cond, ivec3 a, ivec3 b) { return ivec3(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z); }\n"
 				"ivec4 compCond(bvec4 cond, ivec4 a, ivec4 b) { return ivec4(cond.x ? a.x : b.x, cond.y ? a.y : b.y, cond.z ? a.z : b.z, cond.w ? a.w : b.w); }\n"
@@ -315,6 +318,8 @@ private:
 	{
 		if (data_type.is_array())
 		{
+			assert(data_type.is_bounded_array());
+
 			type elem_type = data_type;
 			elem_type.array_length = 0;
 
@@ -846,10 +851,12 @@ private:
 				'_' + std::to_string(func.num_threads[2]);
 
 		if (std::find_if(_module.entry_points.begin(), _module.entry_points.end(),
-				[&func](const entry_point &ep) { return ep.name == func.unique_name; }) != _module.entry_points.end())
+				[&func](const std::pair<std::string, shader_type> &entry_point) {
+					return entry_point.first == func.unique_name;
+				}) != _module.entry_points.end())
 			return;
 
-		_module.entry_points.push_back({ func.unique_name, func.type });
+		_module.entry_points.emplace_back(func.unique_name, func.type);
 
 		_blocks.at(0) += "#ifdef ENTRY_POINT_" + func.unique_name + '\n';
 		if (func.type == shader_type::compute)

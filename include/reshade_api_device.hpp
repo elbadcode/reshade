@@ -58,7 +58,7 @@ namespace reshade { namespace api
 		hull_and_domain_shader,
 		/// <summary>
 		/// Specifies whether logic operations are available in the blend state.
-		/// If this feature is not present, the <see cref="blend_desc::logic_op_enable"/> and <see cref="blend_desc::logic_op"/> fields are ignored.
+		/// If this feature is not present, <see cref="blend_desc::logic_op_enable"/> and <see cref="blend_desc::logic_op"/> are ignored.
 		/// </summary>
 		logic_op,
 		/// <summary>
@@ -78,7 +78,7 @@ namespace reshade { namespace api
 		fill_mode_non_solid,
 		/// <summary>
 		/// Specifies whether conservative rasterization is supported.
-		/// If this feature is not present, the <see cref="rasterizer_desc::conservative_rasterization"/> field must be 0.
+		/// If this feature is not present, <see cref="rasterizer_desc::conservative_rasterization"/> must be 0.
 		/// </summary>
 		conservative_rasterization,
 		/// <summary>
@@ -138,7 +138,7 @@ namespace reshade { namespace api
 		copy_query_heap_results,
 		/// <summary>
 		/// Specifies whether comparison sampling is supported.
-		/// If this feature is not present, the <see cref="sampler_desc::compare_op"/> field is ignored and the compare filter types have no effect.
+		/// If this feature is not present, <see cref="sampler_desc::compare_op"/> is ignored and the compare filter types have no effect.
 		/// </summary>
 		sampler_compare,
 		/// <summary>
@@ -1217,6 +1217,17 @@ namespace reshade { namespace api
 		/// <para>Depending on the graphics API this can be a 'D3DPRESENT', 'DXGI_PRESENT', 'PFD_*' or 'VkSwapchainCreateFlagsKHR' value.</para>
 		/// </summary>
 		uint32_t present_flags = 0;
+
+		/// <summary>
+		/// Initial fullscreen state.
+		/// </summary>
+		bool fullscreen_state = false;
+
+		/// <summary>
+		/// Refresh rate of the display in fullscreen mode, in Hertz.
+		/// Set to zero to use the default.
+		/// </summary>
+		float fullscreen_refresh_rate = 0;
 	};
 
 	/// <summary>

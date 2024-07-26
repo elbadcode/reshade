@@ -10,7 +10,7 @@
 namespace reshade { namespace api
 {
 	/// <summary>
-	/// A list of flags that represent the available shader stages in the render pipeline.
+	/// Flags that specify the shader stages in the render pipeline.
 	/// </summary>
 	enum class shader_stage : uint32_t
 	{
@@ -39,7 +39,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(shader_stage);
 
 	/// <summary>
-	/// A list of flags that represent the available pipeline stages in the render pipeline.
+	/// Flags that specify the pipeline stages in the render pipeline.
 	/// </summary>
 	enum class pipeline_stage : uint32_t
 	{
@@ -70,7 +70,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(pipeline_stage);
 
 	/// <summary>
-	/// The available descriptor types.
+	/// Type of a descriptor.
 	/// </summary>
 	enum class descriptor_type : uint32_t
 	{
@@ -115,14 +115,16 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available pipeline layout parameter types.
+	/// Type of a pipeline layout parameter.
 	/// </summary>
 	enum class pipeline_layout_param_type : uint32_t
 	{
 		push_constants = 1,
 		descriptor_table = 0,
+		descriptor_table_with_static_samplers = 4,
 		push_descriptors = 2,
-		push_descriptors_with_ranges = 3
+		push_descriptors_with_ranges = 3,
+		push_descriptors_with_static_samplers = 5
 	};
 
 	/// <summary>
@@ -190,6 +192,13 @@ namespace reshade { namespace api
 		/// </summary>
 		descriptor_type type = descriptor_type::sampler;
 	};
+	struct descriptor_range_with_static_samplers : public descriptor_range
+	{
+		/// <summary>
+		/// Optional array of sampler descriptions to statically embed into the descriptor table when the descriptor type is <see cref="descriptor_type::sampler"/> or <see cref="descriptor_type::sampler_with_resource_view"/>.
+		/// </summary>
+		const sampler_desc *static_samplers = nullptr;
+	};
 
 	/// <summary>
 	/// Describes a single parameter in a pipeline layout.
@@ -199,7 +208,9 @@ namespace reshade { namespace api
 		constexpr pipeline_layout_param() : push_descriptors() {}
 		constexpr pipeline_layout_param(const constant_range &push_constants) : type(pipeline_layout_param_type::push_constants), push_constants(push_constants) {}
 		constexpr pipeline_layout_param(const descriptor_range &push_descriptors) : type(pipeline_layout_param_type::push_descriptors), push_descriptors(push_descriptors) {}
+		constexpr pipeline_layout_param(const descriptor_range_with_static_samplers &push_descriptors) : type(pipeline_layout_param_type::push_descriptors_with_static_samplers), descriptor_table_with_static_samplers({ 1, &push_descriptors }) {}
 		constexpr pipeline_layout_param(uint32_t count, const descriptor_range *ranges) : type(pipeline_layout_param_type::descriptor_table), descriptor_table({ count, ranges }) {}
+		constexpr pipeline_layout_param(uint32_t count, const descriptor_range_with_static_samplers *ranges) : type(pipeline_layout_param_type::descriptor_table_with_static_samplers), descriptor_table_with_static_samplers({ count, ranges }) {}
 
 		/// <summary>
 		/// Type of the parameter.
@@ -226,6 +237,15 @@ namespace reshade { namespace api
 				uint32_t count;
 				const descriptor_range *ranges;
 			} descriptor_table;
+
+			/// <summary>
+			/// Used when parameter type is <see cref="pipeline_layout_param_type::descriptor_table_with_static_samplers"/> or <see cref="pipeline_layout_param_type::push_descriptors_with_static_samplers"/>.
+			/// </summary>
+			struct
+			{
+				uint32_t count;
+				const descriptor_range_with_static_samplers *ranges;
+			} descriptor_table_with_static_samplers;
 		};
 	};
 
@@ -236,7 +256,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_HANDLE(pipeline_layout);
 
 	/// <summary>
-	/// The fill mode to use when rendering triangles.
+	/// Fill mode to use when rendering triangles.
 	/// </summary>
 	enum class fill_mode : uint32_t
 	{
@@ -258,7 +278,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(cull_mode);
 
 	/// <summary>
-	/// The available logic operations.
+	/// Logic operations.
 	/// </summary>
 	enum class logic_op : uint32_t
 	{
@@ -281,7 +301,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available color or alpha blending operations.
+	/// Color or alpha blending operations.
 	/// </summary>
 	enum class blend_op : uint32_t
 	{
@@ -293,7 +313,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available blend factors in color or alpha blending operations.
+	/// Blend factors in color or alpha blending operations.
 	/// </summary>
 	enum class blend_factor : uint32_t
 	{
@@ -319,7 +339,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available stencil operations that can be performed during depth-stencil testing.
+	/// Stencil operations that can be performed during depth-stencil testing.
 	/// </summary>
 	enum class stencil_op : uint32_t
 	{
@@ -422,7 +442,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available ray tracing shader group types.
+	/// Type of a ray tracing shader group.
 	/// </summary>
 	enum class shader_group_type
 	{
@@ -761,7 +781,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available pipeline creation flags.
+	/// Flags that specify additional parameters of a pipeline.
 	/// </summary>
 	enum class pipeline_flags : uint32_t
 	{
@@ -773,7 +793,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(pipeline_flags);
 
 	/// <summary>
-	/// The available pipeline sub-object types.
+	/// Type of a pipeline sub-object.
 	/// </summary>
 	enum class pipeline_subobject_type : uint32_t
 	{
@@ -1124,7 +1144,7 @@ namespace reshade { namespace api
 	RESHADE_DEFINE_HANDLE(descriptor_heap);
 
 	/// <summary>
-	/// The available query types.
+	/// Type of a query.
 	/// </summary>
 	enum class query_type
 	{
@@ -1166,7 +1186,7 @@ namespace reshade { namespace api
 
 	/// <summary>
 	/// A list of all possible render pipeline states that can be set independent of pipeline state objects.
-	/// <para>Support for these varies between render APIs (e.g. modern APIs like D3D12 and Vulkan support much less dynamic states than D3D9).</para>
+	/// <para>Support for these varies between graphics APIs (e.g. modern APIs like D3D12 and Vulkan support much less dynamic states than D3D9).</para>
 	/// </summary>
 	enum class dynamic_state
 	{
@@ -1261,7 +1281,7 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// A list of flags that describe fence creation options.
+	/// Flags that specify additional parameters of a fence.
 	/// </summary>
 	enum class fence_flags : uint32_t
 	{

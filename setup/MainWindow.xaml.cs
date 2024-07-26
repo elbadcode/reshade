@@ -592,7 +592,7 @@ namespace ReShade.Setup
 				isApiDXGI = peInfo.Modules.Any(s => s.StartsWith("dxgi", StringComparison.OrdinalIgnoreCase) || s.StartsWith("d3d1", StringComparison.OrdinalIgnoreCase) || s.Contains("GFSDK")); // Assume DXGI when GameWorks SDK is in use
 				isApiOpenGL = peInfo.Modules.Any(s => s.StartsWith("opengl32", StringComparison.OrdinalIgnoreCase));
 				isApiVulkan = peInfo.Modules.Any(s => s.StartsWith("vulkan-1", StringComparison.OrdinalIgnoreCase));
-				currentInfo.targetOpenXR = peInfo.Modules.Any(s => s.StartsWith("openxr_loader", StringComparison.OrdinalIgnoreCase));
+				// currentInfo.targetOpenXR = peInfo.Modules.Any(s => s.StartsWith("openxr_loader", StringComparison.OrdinalIgnoreCase));
 
 				if (isApiD3D9 && isApiDXGI)
 				{
@@ -1016,8 +1016,9 @@ namespace ReShade.Setup
 				var appConfig = new IniFile(Path.Combine(commonPath, "ReShadeApps.ini"));
 				if (appConfig.GetValue(string.Empty, "Apps", out string[] appKeys) == false || !appKeys.Contains(currentInfo.targetPath))
 				{
-					List<string> appKeysList = appKeys != null ? appKeys.ToList() : new List<string>();
+					List<string> appKeysList = appKeys?.ToList() ?? new List<string>();
 					appKeysList.Add(currentInfo.targetPath);
+
 					appConfig.SetValue(string.Empty, "Apps", appKeysList.ToArray());
 					appConfig.SaveFile();
 				}
@@ -1092,7 +1093,7 @@ In that event here are some steps you can try to resolve this:
 					var info = FileVersionInfo.GetVersionInfo(currentInfo.targetPath);
 					if (info.LegalCopyright != null)
 					{
-						Match match = new Regex("(20[0-9]{2})", RegexOptions.RightToLeft).Match(info.LegalCopyright);
+						Match match = new Regex(@"(20[0-9]{2})", RegexOptions.RightToLeft).Match(info.LegalCopyright);
 						if (match.Success && int.TryParse(match.Groups[1].Value, out int year))
 						{
 							// Modern games usually use reversed depth
@@ -1262,15 +1263,6 @@ In that event here are some steps you can try to resolve this:
 			if (!config.HasValue("OVERLAY", "AutoSavePreset") && config.HasValue("OVERLAY", "SavePresetOnModification"))
 			{
 				config.RenameValue("OVERLAY", "SavePresetOnModification", "AutoSavePreset");
-			}
-
-			// Always add app section if this is the global config
-			if (Path.GetDirectoryName(currentInfo.configPath) == Path.GetDirectoryName(currentInfo.targetPath) && !config.HasValue("APP"))
-			{
-				config.SetValue("APP", "ForceVsync", "0");
-				config.SetValue("APP", "ForceWindowed", "0");
-				config.SetValue("APP", "ForceFullscreen", "0");
-				config.SetValue("APP", "ForceDefaultRefreshRate", "0");
 			}
 
 			// Always add input section
@@ -1779,12 +1771,6 @@ In that event here are some steps you can try to resolve this:
 
 		void OnNextButtonClick(object sender, RoutedEventArgs e)
 		{
-			if (currentOperation == InstallOperation.Finished)
-			{
-				Close();
-				return;
-			}
-
 			if (CurrentPage.Content is SelectAppPage appPage)
 			{
 				appPage.Cancel();
@@ -1881,18 +1867,20 @@ In that event here are some steps you can try to resolve this:
 				ResetStatus();
 			}
 		}
+		void OnFinishButtonClick(object sender, RoutedEventArgs e)
+		{
+			Close();
+		}
 
+		void OnSkipButtonClick(object sender, RoutedEventArgs e)
+		{
+			InstallStep_Finish();
+		}
 		void OnCancelButtonClick(object sender, RoutedEventArgs e)
 		{
 			if (CurrentPage.Content is SelectAppPage appPage)
 			{
 				appPage.Cancel();
-			}
-
-			if (CurrentPage.Content is SelectAddonsPage || CurrentPage.Content is SelectEffectsPage)
-			{
-				InstallStep_Finish();
-				return;
 			}
 
 			Close();
@@ -1901,9 +1889,13 @@ In that event here are some steps you can try to resolve this:
 		void OnCurrentPageNavigated(object sender, NavigationEventArgs e)
 		{
 			bool isFinished = currentOperation == InstallOperation.Finished;
+			bool isSkippable = e.Content is SelectAddonsPage || e.Content is SelectEffectsPage;
 
-			NextButton.Content = isFinished ? "_Finish" : "_Next";
-			CancelButton.Content = (e.Content is SelectEffectsPage) ? "_Skip" : (e.Content is SelectAppPage) ? "_Close" : "_Cancel";
+			NextButton.Visibility = isFinished ? Visibility.Collapsed : Visibility.Visible;
+			FinishButton.Visibility = isFinished ? Visibility.Visible : Visibility.Collapsed;
+
+			SkipButton.Visibility = isSkippable ? Visibility.Visible : Visibility.Collapsed;
+			CancelButton.Visibility = isSkippable ? Visibility.Collapsed : Visibility.Visible;
 
 			BackButton.IsEnabled = isFinished;
 			CancelButton.IsEnabled = !(e.Content is StatusPage);

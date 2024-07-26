@@ -8,6 +8,7 @@
 #include <d3d12.h>
 #include "reshade_api_pipeline.hpp"
 #include <vector>
+#include <limits>
 
 namespace reshade::d3d12
 {
@@ -79,6 +80,7 @@ namespace reshade::d3d12
 	void convert_resource_view_desc(const api::resource_view_desc &desc, D3D12_RENDER_TARGET_VIEW_DESC &internal_desc);
 	void convert_resource_view_desc(const api::resource_view_desc &desc, D3D12_SHADER_RESOURCE_VIEW_DESC &internal_desc);
 	void convert_resource_view_desc(const api::resource_view_desc &desc, D3D12_UNORDERED_ACCESS_VIEW_DESC &internal_desc);
+	api::resource_view_desc convert_resource_view_desc(const D3D12_RESOURCE_DESC &resource_desc);
 	api::resource_view_desc convert_resource_view_desc(const D3D12_DEPTH_STENCIL_VIEW_DESC &internal_desc);
 	api::resource_view_desc convert_resource_view_desc(const D3D12_RENDER_TARGET_VIEW_DESC &internal_desc);
 	api::resource_view_desc convert_resource_view_desc(const D3D12_SHADER_RESOURCE_VIEW_DESC &internal_desc);
@@ -87,8 +89,8 @@ namespace reshade::d3d12
 	void convert_shader_desc(const api::shader_desc &desc, D3D12_SHADER_BYTECODE &internal_desc);
 	api::shader_desc convert_shader_desc(const D3D12_SHADER_BYTECODE &internal_desc);
 
-	void convert_input_layout_desc(uint32_t count, const api::input_element *elements, std::vector<D3D12_INPUT_ELEMENT_DESC> &internal_elements);
-	std::vector<api::input_element> convert_input_layout_desc(UINT count, const D3D12_INPUT_ELEMENT_DESC *internal_elements);
+	void convert_input_element(const api::input_element &desc, D3D12_INPUT_ELEMENT_DESC &internal_desc);
+	api::input_element convert_input_element(const D3D12_INPUT_ELEMENT_DESC &internal_desc);
 
 	void convert_stream_output_desc(const api::stream_output_desc &desc, D3D12_STREAM_OUTPUT_DESC &internal_desc);
 	api::stream_output_desc convert_stream_output_desc(const D3D12_STREAM_OUTPUT_DESC &internal_desc);
@@ -135,7 +137,8 @@ namespace reshade::d3d12
 	auto convert_descriptor_type(D3D12_DESCRIPTOR_RANGE_TYPE type) -> api::descriptor_type;
 	auto convert_descriptor_type_to_heap_type(api::descriptor_type type) -> D3D12_DESCRIPTOR_HEAP_TYPE;
 
-	auto convert_shader_visibility(D3D12_SHADER_VISIBILITY visibility) -> api::shader_stage;
+	auto convert_shader_visibility(api::shader_stage value) -> D3D12_SHADER_VISIBILITY;
+	auto convert_shader_visibility(D3D12_SHADER_VISIBILITY value) -> api::shader_stage;
 
 	auto convert_render_pass_load_op(api::render_pass_load_op value) -> D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE;
 	auto convert_render_pass_load_op(D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE value) -> api::render_pass_load_op;

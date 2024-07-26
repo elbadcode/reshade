@@ -5,14 +5,20 @@
 
 #include "effect_parser.hpp"
 #include "effect_codegen.hpp"
-#include <cmath> // std::signbit, std::isinf, std::isnan
+#include <cmath> // std::isinf, std::isnan, std::signbit
 #include <cctype> // std::tolower
-#include <cstdio> // std::snprintf
 #include <cassert>
-#include <cstring> // stricmp
-#include <algorithm> // std::find_if, std::max
+#include <cstring> // stricmp, std::memcmp
+#include <charconv> // std::from_chars, std::to_chars
+#include <algorithm> // std::equal, std::find_if, std::max
 
 using namespace reshadefx;
+
+inline char to_digit(unsigned int value)
+{
+	assert(value < 10);
+	return '0' + static_cast<char>(value);
+}
 
 class codegen_hlsl final : public codegen
 {
@@ -53,13 +59,7 @@ private:
 	bool _uses_bitwise_cast = false;
 	bool _uses_bitwise_intrinsics = false;
 
-	static inline char to_digit(unsigned int value)
-	{
-		assert(value < 10);
-		return '0' + static_cast<char>(value);
-	}
-
-	void write_result(module &module) override
+	void write_result(effect_module &module) override
 	{
 		module = std::move(_module);
 
@@ -411,6 +411,8 @@ private:
 	{
 		if (data_type.is_array())
 		{
+			assert(data_type.is_bounded_array());
+
 			type elem_type = data_type;
 			elem_type.array_length = 0;
 
@@ -468,9 +470,12 @@ private:
 					s += std::signbit(data.as_float[i]) ? "1.#INF" : "-1.#INF";
 					break;
 				}
-				char temp[64]; // Will be null-terminated by snprintf
-				std::snprintf(temp, sizeof(temp), "%1.8e", data.as_float[i]);
-				s += temp;
+				char temp[64];
+				const std::to_chars_result res = std::to_chars(temp, temp + sizeof(temp), data.as_float[i], std::chars_format::scientific, 8);
+				if (res.ec == std::errc())
+					s.append(temp, res.ptr);
+				else
+					assert(false);
 				break;
 			default:
 				assert(false);
@@ -595,7 +600,9 @@ private:
 			digit_index++;
 
 			const std::string semantic_base = semantic.substr(0, digit_index);
-			const uint32_t semantic_digit = static_cast<uint32_t>(std::strtoul(semantic.c_str() + digit_index, nullptr, 10));
+
+			uint32_t semantic_digit = 0;
+			std::from_chars(semantic.c_str() + digit_index, semantic.c_str() + semantic.size(), semantic_digit);
 
 			if (semantic_base == "TEXCOORD")
 			{
@@ -772,8 +779,7 @@ private:
 				code += "SamplerState __s" + std::to_string(info.binding) + " : register(s" + std::to_string(info.binding) + ");\n";
 			}
 
-			assert(info.srgb == 0 || info.srgb == 1);
-			info.texture_binding = tex_info.binding + info.srgb; // Offset binding by one to choose the SRGB variant
+			info.texture_binding = tex_info.binding + (info.srgb ? 1 : 0); // Offset binding by one to choose the SRGB variant
 
 			write_location(code, loc);
 
@@ -931,8 +937,12 @@ private:
 	}
 	id   define_variable(const location &loc, const type &type, std::string name, bool global, id initializer_value) override
 	{
-		// Constant variables can just point to the initializer SSA variable, since they cannot be modified anyway, thus saving an unnecessary assignment
-		if (initializer_value != 0 && type.has(type::q_const))
+		// Constant variables with a constant initializer can just point to the initializer SSA variable, since they cannot be modified anyway, thus saving an unnecessary assignment
+		if (initializer_value != 0 && type.has(type::q_const) &&
+			std::find_if(_constant_lookup.begin(), _constant_lookup.end(),
+				[initializer_value](const auto &x) {
+					return initializer_value == std::get<2>(x);
+				}) != _constant_lookup.end())
 			return initializer_value;
 
 		const id res = make_id();
@@ -1012,7 +1022,7 @@ private:
 	void define_entry_point(function_info &func) override
 	{
 		// Modify entry point name since a new function is created for it below
-		if (func.shader_type == shader_type::compute)
+		if (func.type == shader_type::compute)
 			func.unique_name = 'E' + func.unique_name +
 				'_' + std::to_string(func.num_threads[0]) +
 				'_' + std::to_string(func.num_threads[1]) +
@@ -1021,13 +1031,15 @@ private:
 			func.unique_name = 'E' + func.unique_name;
 
 		if (std::find_if(_module.entry_points.begin(), _module.entry_points.end(),
-				[&func](const entry_point &ep) { return ep.name == func.unique_name; }) != _module.entry_points.end())
+				[&func](const std::pair<std::string, shader_type> &entry_point) {
+					return entry_point.first == func.unique_name;
+				}) != _module.entry_points.end())
 			return;
 
-		_module.entry_points.push_back({ func.unique_name, func.shader_type });
+		_module.entry_points.emplace_back(func.unique_name, func.type);
 
 		// Only have to rewrite the entry point function signature in shader model 3 and for compute (to write "numthreads" attribute)
-		if (_shader_model >= 40 && func.shader_type != shader_type::compute)
+		if (_shader_model >= 40 && func.type != shader_type::compute)
 			return;
 
 		function_info entry_point = func;
@@ -1042,7 +1054,7 @@ private:
 
 		std::string position_variable_name;
 		{
-			if (func.return_type.is_struct() && func.shader_type == shader_type::vertex)
+			if (func.return_type.is_struct() && func.type == shader_type::vertex)
 			{
 				// If this function returns a struct which contains a position output, keep track of its member name
 				for (const struct_member_info &member : get_struct(func.return_type.definition).member_list)
@@ -1057,18 +1069,18 @@ private:
 			}
 			if (is_position_semantic(func.return_semantic))
 			{
-				if (func.shader_type == shader_type::vertex)
+				if (func.type == shader_type::vertex)
 					// Keep track of the position output variable
 					position_variable_name = id_to_name(ret);
 			}
 		}
 		for (struct_member_info &param : entry_point.parameter_list)
 		{
-			if (param.type.is_struct() && func.shader_type == shader_type::vertex)
+			if (param.type.is_struct() && func.type == shader_type::vertex)
 			{
 				for (const struct_member_info &member : get_struct(param.type.definition).member_list)
 					if (is_position_semantic(member.semantic))
-						position_variable_name = param.name + '.' + member.name;
+						position_variable_name = id_to_name(param.definition) + '.' + member.name;
 			}
 
 			if (is_color_semantic(param.semantic))
@@ -1077,16 +1089,16 @@ private:
 			}
 			if (is_position_semantic(param.semantic))
 			{
-				if (func.shader_type == shader_type::vertex)
+				if (func.type == shader_type::vertex)
 					// Keep track of the position output variable
-					position_variable_name = param.name;
-				else if (func.shader_type == shader_type::pixel)
+					position_variable_name = id_to_name(param.definition);
+				else if (func.type == shader_type::pixel)
 					// Change the position input semantic in pixel shaders
 					param.semantic = "VPOS";
 			}
 		}
 
-		if (func.shader_type == shader_type::compute)
+		if (func.type == shader_type::compute)
 			_blocks.at(_current_block) += "[numthreads(" +
 				std::to_string(func.num_threads[0]) + ", " +
 				std::to_string(func.num_threads[1]) + ", " +
@@ -1101,7 +1113,7 @@ private:
 		for (struct_member_info &param : entry_point.parameter_list)
 		{
 			if (is_color_semantic(param.semantic))
-				code += '\t' + param.name + " = float4(0.0, 0.0, 0.0, 0.0);\n";
+				code += '\t' + id_to_name(param.definition) + " = float4(0.0, 0.0, 0.0, 0.0);\n";
 		}
 
 		code += '\t';
@@ -1120,13 +1132,13 @@ private:
 
 		for (size_t i = 0, num_params = func.parameter_list.size(); i < num_params; ++i)
 		{
-			code += func.parameter_list[i].name;
+			code += id_to_name(entry_point.parameter_list[i].definition);
 
 			if (is_color_semantic(func.parameter_list[i].semantic))
 			{
 				code += '.';
-				for (unsigned int k = 0; k < func.parameter_list[i].type.rows; k++)
-					code += "xyzw"[k];
+				for (unsigned int c = 0; c < func.parameter_list[i].type.rows; c++)
+					code += "xyzw"[c];
 			}
 
 			if (i < num_params - 1)
@@ -1138,7 +1150,7 @@ private:
 		// Cast the output value to a four-component vector
 		if (is_color_semantic(func.return_semantic))
 		{
-			for (unsigned int i = 0; i < (4 - func.return_type.rows); i++)
+			for (unsigned int c = 0; c < (4 - func.return_type.rows); c++)
 				code += ", 0.0";
 			code += ')';
 		}
@@ -1146,7 +1158,7 @@ private:
 		code += ";\n";
 
 		// Shift everything by half a viewport pixel to workaround the different half-pixel offset in D3D9 (https://aras-p.info/blog/2016/04/08/solving-dx9-half-pixel-offset/)
-		if (!position_variable_name.empty() && func.shader_type == shader_type::vertex) // Check if we are in a vertex shader definition
+		if (!position_variable_name.empty() && func.type == shader_type::vertex) // Check if we are in a vertex shader definition
 			code += '\t' + position_variable_name + ".xy += __TEXEL_SIZE__ * " + position_variable_name + ".ww;\n";
 
 		leave_block_and_return(func.return_type.is_void() ? 0 : ret);
@@ -1275,7 +1287,7 @@ private:
 			assert(data_type.has(type::q_const));
 
 			if (const auto it = std::find_if(_constant_lookup.begin(), _constant_lookup.end(),
-					[&data_type, &data](std::tuple<type, constant, id> &x) {
+					[&data_type, &data](const std::tuple<type, constant, id> &x) {
 						if (!(std::get<0>(x) == data_type && std::memcmp(&std::get<1>(x).as_uint[0], &data.as_uint[0], sizeof(uint32_t) * 16) == 0 && std::get<1>(x).array_data.size() == data.array_data.size()))
 							return false;
 						for (size_t i = 0; i < data.array_data.size(); ++i)
@@ -1522,17 +1534,7 @@ private:
 
 		code += '\t';
 
-		if (_shader_model >= 40 && (
-			(intrinsic >= tex1Dsize0 && intrinsic <= tex3Dsize2) ||
-			(intrinsic >= atomicAdd0 && intrinsic <= atomicCompareExchange1) ||
-			(!(res_type.is_floating_point() || _shader_model >= 67) && (intrinsic >= tex1D0 && intrinsic <= tex3Dlod1))))
-		{
-			// Implementation of the 'tex2Dsize' intrinsic passes the result variable into 'GetDimensions' as output argument
-			// Same with the atomic intrinsics, which use the last parameter to return the previous value of the target
-			write_type(code, res_type);
-			code += ' ' + id_to_name(res) + "; ";
-		}
-		else if (!res_type.is_void())
+		if (!res_type.is_void())
 		{
 			write_type(code, res_type);
 			code += ' ' + id_to_name(res) + " = ";

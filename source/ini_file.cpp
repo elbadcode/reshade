@@ -4,11 +4,13 @@
  */
 
 #include "ini_file.hpp"
-#include <cctype>
-#include <cassert>
 #include <fstream>
 #include <sstream>
 #include <shared_mutex>
+#include <cctype> // std::toupper
+#include <cassert>
+#include <algorithm> // std::min, std::sort, std::transform
+#include <utf8/core.h>
 
 static std::shared_mutex s_ini_cache_mutex;
 static std::unordered_map<std::wstring, std::unique_ptr<ini_file>> s_ini_cache;
@@ -41,14 +43,14 @@ bool ini_file::load()
 	_modified_at = modified_at;
 
 	file.imbue(std::locale("en-us.UTF-8"));
-	// Remove BOM (0xefbbbf means 0xfeff)
-	if (file.get() != 0xef || file.get() != 0xbb || file.get() != 0xbf)
+	// Remove BOM
+	if (file.get() != utf8::bom[0] || file.get() != utf8::bom[1] || file.get() != utf8::bom[2])
 		file.seekg(0, std::ios::beg);
 
 	std::string line, section;
 	while (std::getline(file, line))
 	{
-		trim(line);
+		line = trim(line);
 
 		if (line.empty() || line[0] == ';' || line[0] == '/' || line[0] == '#')
 			continue;
@@ -228,8 +230,12 @@ bool ini_file::flush_cache()
 
 	return success;
 }
-bool ini_file::flush_cache(const std::filesystem::path &path)
+bool ini_file::flush_cache(std::filesystem::path path)
 {
+	std::error_code ec;
+	if (std::filesystem::path resolved = std::filesystem::weakly_canonical(path, ec); !ec)
+		path = std::move(resolved);
+
 	const std::shared_lock<std::shared_mutex> lock(s_ini_cache_mutex);
 
 	const auto it = s_ini_cache.find(path);
@@ -242,16 +248,24 @@ void ini_file::clear_cache()
 
 	s_ini_cache.clear();
 }
-void ini_file::clear_cache(const std::filesystem::path &path)
+void ini_file::clear_cache(std::filesystem::path path)
 {
+	std::error_code ec;
+	if (std::filesystem::path resolved = std::filesystem::weakly_canonical(path, ec); !ec)
+		path = std::move(resolved);
+
 	const std::unique_lock<std::shared_mutex> lock(s_ini_cache_mutex);
 
 	s_ini_cache.erase(path);
 }
 
-ini_file &ini_file::load_cache(const std::filesystem::path &path)
+ini_file &ini_file::load_cache(std::filesystem::path path)
 {
 	assert(!path.empty());
+
+	std::error_code ec;
+	if (std::filesystem::path resolved = std::filesystem::weakly_canonical(path, ec); !ec)
+		path = std::move(resolved);
 
 	const std::unique_lock<std::shared_mutex> lock(s_ini_cache_mutex);
 

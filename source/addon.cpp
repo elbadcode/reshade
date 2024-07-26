@@ -10,6 +10,7 @@
 #include "runtime.hpp"
 #include "dll_log.hpp"
 #include "ini_file.hpp"
+#include <cstring> // std::strlen
 
 void ReShadeLogMessage([[maybe_unused]] HMODULE module, int level, const char *message)
 {
@@ -40,48 +41,83 @@ void ReShadeGetBasePath(char *path, size_t *size)
 	else if (*size != 0)
 	{
 		*size = path_string.copy(path, *size - 1);
-		path[*size++] = '\0';
+		path[*size] = '\0';
 	}
 }
 
 bool ReShadeGetConfigValue(HMODULE, reshade::api::effect_runtime *runtime, const char *section, const char *key, char *value, size_t *size)
 {
-	if (size == nullptr)
-		return false;
-
 	ini_file &config = (runtime != nullptr) ? ini_file::load_cache(static_cast<reshade::runtime *>(runtime)->get_config_path()) : reshade::global_config();
 
 	const std::string section_string = section != nullptr ? section : std::string();
 	const std::string key_string = key != nullptr ? key : std::string();
-	std::string value_string;
 
-	if (!config.get(section_string, key_string, value_string))
+	std::vector<std::string> elements;
+	config.get(section_string, key_string, elements);
+
+	if (size != nullptr || value != nullptr)
 	{
-		*size = 0;
-		return false;
+		std::string value_string;
+		for (const std::string &element : elements)
+		{
+			value_string += element;
+			value_string += '\0';
+		}
+
+		if (size != nullptr)
+		{
+			if (elements.empty())
+			{
+				*size = 0;
+			}
+			else if (value == nullptr)
+			{
+				*size = value_string.size() + 1;
+			}
+			else if (*size != 0)
+			{
+				*size = value_string.copy(value, *size - 1);
+				value[*size] = '\0';
+			}
+		}
 	}
 
-	if (value == nullptr)
-	{
-		*size = value_string.size() + 1;
-	}
-	else if (*size != 0)
-	{
-		*size = value_string.copy(value, *size - 1);
-		value[*size++] = '\0';
-	}
-
-	return true;
+	return !elements.empty();
 }
-void ReShadeSetConfigValue(HMODULE, reshade::api::effect_runtime *runtime, const char *section, const char *key, const char *value)
+
+void ReShadeSetConfigValue(HMODULE module, reshade::api::effect_runtime *runtime, const char *section, const char *key, const char *value)
+{
+	return ReShadeSetConfigArray(module, runtime, section, key, value, value != nullptr ? std::strlen(value) : 0);
+}
+void ReShadeSetConfigArray(HMODULE, reshade::api::effect_runtime *runtime, const char *section, const char *key, const char *value, size_t size)
 {
 	ini_file &config = (runtime != nullptr) ? ini_file::load_cache(static_cast<reshade::runtime *>(runtime)->get_config_path()) : reshade::global_config();
 
 	const std::string section_string = section != nullptr ? section : std::string();
 	const std::string key_string = key != nullptr ? key : std::string();
-	const std::string value_string = value != nullptr ? value : std::string();
 
-	config.set(section_string, key_string, value_string);
+	if (size == 0)
+	{
+		config.remove_key(section_string, key_string);
+		return;
+	}
+
+	std::vector<std::string> elements;
+	for (size_t i = 0, k = 0; i < size; i++)
+	{
+		if (k >= elements.size())
+			elements.resize(k + 1);
+
+		if (value[i] == '\0')
+		{
+			k++;
+			continue;
+		}
+
+		elements[k] += value[i];
+	}
+
+	config.set(section_string, key_string, elements);
 }
 
 #if RESHADE_ADDON && RESHADE_FX
@@ -279,13 +315,16 @@ void ReShadeUpdateAndPresentEffectRuntime(reshade::api::effect_runtime *runtime)
 
 #if RESHADE_ADDON && RESHADE_GUI
 
+#include "imgui_function_table_19040.hpp"
 #include "imgui_function_table_19000.hpp"
 #include "imgui_function_table_18971.hpp"
 #include "imgui_function_table_18600.hpp"
 
 extern "C" __declspec(dllexport) const void *ReShadeGetImGuiFunctionTable(uint32_t version)
 {
-	if (version == 19000 || version == 19010)
+	if (version == 19040)
+		return &g_imgui_function_table_19040;
+	if (version >= 19000 && version < 19040)
 		return &g_imgui_function_table_19000;
 	if (version == 18971)
 		return &g_imgui_function_table_18971;

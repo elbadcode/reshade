@@ -144,10 +144,18 @@
     <Archive Include="ReShade64_XR.json" />
   </ItemGroup>
   <ItemGroup>
-    <Resource Include="Pages\Resources\DirectX.png" />
-    <Resource Include="Pages\Resources\OpenGL.png" />
-    <Resource Include="Pages\Resources\OpenXR.png" />
-    <Resource Include="Pages\Resources\Vulkan.png" />
+    <Resource Include="Pages\Resources\DirectX.png">
+      <Localizable>false</Localizable>
+    </Resource>
+    <Resource Include="Pages\Resources\OpenGL.png">
+      <Localizable>false</Localizable>
+    </Resource>
+    <Resource Include="Pages\Resources\OpenXR.png">
+      <Localizable>false</Localizable>
+    </Resource>
+    <Resource Include="Pages\Resources\Vulkan.png">
+      <Localizable>false</Localizable>
+    </Resource>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.WindowsSDK.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Common.props" />
@@ -165,7 +173,7 @@
     <ItemGroup>
       <Archive Include="$(SolutionDir)bin\*\$(Configuration)\ReShade*.dll" />
     </ItemGroup>
-    <Exec Command="$(SolutionDir)tools\7za.exe a -y &quot;$(TargetPath).zip&quot; &quot;@(Archive, '&quot; &quot;')&quot;" />
+    <Exec Command="$(SolutionDir)tools\7za.exe a -mx=9 -mfb=258 -mpass=12 -y &quot;$(TargetPath).zip&quot; &quot;@(Archive, '&quot; &quot;')&quot;" />
     <Message Text="Appending archive to setup executable ..." Importance="high" />
     <Exec Command="copy /b &quot;$(TargetPath)&quot; + &quot;$(TargetPath).zip&quot; &quot;$(TargetPath)&quot;" EchoOff="true" />
     <Delete Files="$(TargetPath).zip" />

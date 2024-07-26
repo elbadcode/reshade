@@ -289,6 +289,9 @@ namespace reshade
 		/// </list>
 		/// <para>Callback function signature: <c>void (api::device *device, const api::resource_desc &amp;desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource resource)</c></para>
 		/// </summary>
+		/// <remarks>
+		/// May be called multiple times with the same resource handle (whenever the resource is updated or its reference count is incremented).
+		/// </remarks>
 		init_resource,
 
 		/// <summary>
@@ -403,6 +406,9 @@ namespace reshade
 		/// </list>
 		/// <para>Callback function signature: <c>void (api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &amp;desc, api::resource_view view)</c></para>
 		/// </summary>
+		/// <remarks>
+		/// May be called multiple times with the same resource view handle (whenever the resource view is updated).
+		/// </remarks>
 		init_resource_view,
 
 		/// <summary>
@@ -789,7 +795,7 @@ namespace reshade
 		/// </list>
 		/// <para>Callback function signature: <c>bool (api::device *device, api::query_heap heap, uint32_t first, uint32_t count, void *results, uint32_t stride)</c></para>
 		/// </summary>
-		get_query_heap_results = 37,
+		get_query_heap_results,
 
 		/// <summary>
 		/// Called after:
@@ -801,7 +807,7 @@ namespace reshade
 		/// </list>
 		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, uint32_t count, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states)</c></para>
 		/// </summary>
-		barrier = 38,
+		barrier,
 
 		/// <summary>
 		/// Called before:
@@ -877,6 +883,7 @@ namespace reshade
 		/// <item><description>ID3D12GraphicsCommandList::SetPipelineState</description></item>
 		/// <item><description>ID3D12GraphicsCommandList4::SetPipelineState1</description></item>
 		/// <item><description>glUseProgram</description></item>
+		/// <item><description>glBindVertexArray</description></item>
 		/// <item><description>vkCmdBindPipeline</description></item>
 		/// </list>
 		/// <para>Callback function signature: <c>void (api::command_list *cmd_list, api::pipeline_stage stages, api::pipeline pipeline)</c></para>
@@ -1645,11 +1652,20 @@ namespace reshade
 		reshade_render_technique,
 
 		/// <summary>
+		/// Called when all effects are about to be enabled or disabled.
+		/// <para>Callback function signature: <c>bool (api::effect_runtime *runtime, bool enabled)</c></para>
+		/// </summary>
+		/// <remarks>
+		/// To prevent the effects state from being changed, return <see langword="true"/>, otherwise return <see langword="false"/>.
+		/// </remarks>
+		reshade_set_effects_state = 94,
+
+		/// <summary>
 		/// Called after a preset was loaded and applied.
 		/// This occurs after effect reloading or when the user chooses a new preset in the overlay.
 		/// <para>Callback function signature: <c>void (api::effect_runtime *runtime, const char *path)</c></para>
 		/// </summary>
-		reshade_set_current_preset_path,
+		reshade_set_current_preset_path = 84,
 
 		/// <summary>
 		/// Called when the rendering order of loaded techniques is changed, with a handle array specifying the new order.
@@ -1690,7 +1706,7 @@ namespace reshade
 		reshade_overlay_technique,
 
 #if RESHADE_ADDON
-		max = 94 // Last value used internally by ReShade to determine number of events in this enum
+		max = 95 // Last value used internally by ReShade to determine number of events in this enum
 #endif
 	};
 
@@ -1824,6 +1840,7 @@ namespace reshade
 
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::reshade_render_technique, void, api::effect_runtime *runtime, api::effect_technique technique, api::command_list *cmd_list, api::resource_view rtv, api::resource_view rtv_srgb);
 
+	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::reshade_set_effects_state, bool, api::effect_runtime *runtime, bool enabled);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::reshade_set_current_preset_path, void, api::effect_runtime *runtime, const char *path);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::reshade_reorder_techniques, bool, api::effect_runtime *runtime, size_t count, api::effect_technique *techniques);
 

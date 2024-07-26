@@ -5,8 +5,9 @@
 
 #include "dll_resources.hpp"
 #include <cassert>
-#include <Windows.h>
+#include <algorithm> // std::find
 #include <utf8/unchecked.h>
+#include <Windows.h>
 
 extern HMODULE g_module_handle;
 
@@ -96,6 +97,9 @@ std::vector<std::string> reshade::resources::get_languages()
 			*reinterpret_cast<LPCWSTR *>(lParam) = lpName;
 			return FALSE;
 		}, reinterpret_cast<LONG_PTR>(&first_string_table_block));
+
+	if (first_string_table_block == nullptr)
+		return {};
 
 	std::vector<std::string> languages;
 	EnumResourceLanguages(g_module_handle, RT_STRING, first_string_table_block,

@@ -4,8 +4,8 @@
  */
 
 #include "d3d12_impl_type_convert.hpp"
-#include <limits>
 #include <cassert>
+#include <algorithm> // std::copy_n, std::fill_n
 
 // {B2257A30-4014-46EA-BD88-DEC21DB6A02B}
 const GUID reshade::d3d12::extra_data_guid = { 0xB2257A30, 0x4014, 0x46EA, { 0xBD, 0x88, 0xDE, 0xC2, 0x1D, 0xB6, 0xA0, 0x2B } };
@@ -545,7 +545,7 @@ void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &d
 {
 	// Missing fields: D3D12_DEPTH_STENCIL_VIEW_DESC::Flags
 	internal_desc.Format = convert_format(desc.format);
-	assert(desc.type != api::resource_view_type::buffer && desc.texture.level_count == 1);
+	assert(desc.type != api::resource_view_type::buffer);
 	switch (desc.type) // Do not modifiy description in case type is 'resource_view_type::unknown'
 	{
 	case api::resource_view_type::texture_1d:
@@ -581,9 +581,14 @@ void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &d
 void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &desc, D3D12_RENDER_TARGET_VIEW_DESC &internal_desc)
 {
 	internal_desc.Format = convert_format(desc.format);
-	assert(desc.type != api::resource_view_type::buffer && desc.texture.level_count == 1);
 	switch (desc.type) // Do not modifiy description in case type is 'resource_view_type::unknown'
 	{
+	case api::resource_view_type::buffer:
+		internal_desc.ViewDimension = D3D12_RTV_DIMENSION_BUFFER;
+		internal_desc.Buffer.FirstElement = desc.buffer.offset;
+		assert(desc.buffer.size <= std::numeric_limits<UINT>::max());
+		internal_desc.Buffer.NumElements = static_cast<UINT>(desc.buffer.size);
+		break;
 	case api::resource_view_type::texture_1d:
 		internal_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE1D;
 		internal_desc.Texture1D.MipSlice = desc.texture.first_level;
@@ -631,7 +636,12 @@ void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &d
 		internal_desc.Buffer.FirstElement = desc.buffer.offset;
 		assert(desc.buffer.size <= std::numeric_limits<UINT>::max());
 		internal_desc.Buffer.NumElements = static_cast<UINT>(desc.buffer.size);
-		// Missing fields: D3D12_BUFFER_SRV::StructureByteStride, D3D12_BUFFER_SRV::Flags
+		// Missing fields: D3D12_BUFFER_SRV::StructureByteStride
+
+		if (internal_desc.Format == DXGI_FORMAT_R32_TYPELESS)
+			internal_desc.Buffer.Flags |= D3D12_BUFFER_SRV_FLAG_RAW;
+		else
+			internal_desc.Buffer.Flags &= ~D3D12_BUFFER_SRV_FLAG_RAW;
 		break;
 	case api::resource_view_type::texture_1d:
 		internal_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
@@ -709,7 +719,12 @@ void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &d
 		internal_desc.Buffer.FirstElement = desc.buffer.offset;
 		assert(desc.buffer.size <= std::numeric_limits<UINT>::max());
 		internal_desc.Buffer.NumElements = static_cast<UINT>(desc.buffer.size);
-		// Missing fields: D3D12_BUFFER_UAV::StructureByteStride, D3D12_BUFFER_UAV::CounterOffsetInBytes, D3D12_BUFFER_UAV::Flags
+		// Missing fields: D3D12_BUFFER_UAV::StructureByteStride, D3D12_BUFFER_UAV::CounterOffsetInBytes
+
+		if (internal_desc.Format == DXGI_FORMAT_R32_TYPELESS)
+			internal_desc.Buffer.Flags |= D3D12_BUFFER_UAV_FLAG_RAW;
+		else
+			internal_desc.Buffer.Flags &= ~D3D12_BUFFER_UAV_FLAG_RAW;
 		break;
 	case api::resource_view_type::texture_1d:
 		internal_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
@@ -738,6 +753,43 @@ void reshade::d3d12::convert_resource_view_desc(const api::resource_view_desc &d
 		internal_desc.Texture3D.WSize = desc.texture.layer_count;
 		break;
 	}
+}
+reshade::api::resource_view_desc reshade::d3d12::convert_resource_view_desc(const D3D12_RESOURCE_DESC &resource_desc)
+{
+	api::resource_view_desc desc = {};
+	switch (resource_desc.Dimension)
+	{
+	case D3D12_RESOURCE_DIMENSION_BUFFER:
+		desc.type = api::resource_view_type::buffer;
+		desc.buffer.offset = 0;
+		desc.buffer.size = UINT64_MAX;
+		break;
+	case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+		desc.type = api::resource_view_type::texture_1d;
+		desc.texture.first_level = 0;
+		desc.texture.level_count = UINT32_MAX;
+		desc.texture.first_layer = 0;
+		desc.texture.layer_count = UINT32_MAX;
+		break;
+	case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+		desc.type = api::resource_view_type::texture_2d;
+		desc.texture.first_level = 0;
+		desc.texture.level_count = UINT32_MAX;
+		desc.texture.first_layer = 0;
+		desc.texture.layer_count = UINT32_MAX;
+		break;
+	case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+		desc.type = api::resource_view_type::texture_3d;
+		desc.texture.first_level = 0;
+		desc.texture.level_count = UINT32_MAX;
+		desc.texture.first_layer = 0;
+		desc.texture.layer_count = UINT32_MAX;
+		break;
+	}
+
+	desc.format = convert_format(resource_desc.Format);
+
+	return desc;
 }
 reshade::api::resource_view_desc reshade::d3d12::convert_resource_view_desc(const D3D12_DEPTH_STENCIL_VIEW_DESC &internal_desc)
 {
@@ -785,6 +837,11 @@ reshade::api::resource_view_desc reshade::d3d12::convert_resource_view_desc(cons
 	desc.texture.level_count = 1;
 	switch (internal_desc.ViewDimension)
 	{
+	case D3D12_RTV_DIMENSION_BUFFER:
+		desc.type = api::resource_view_type::buffer;
+		desc.buffer.offset = internal_desc.Buffer.FirstElement;
+		desc.buffer.size = internal_desc.Buffer.NumElements;
+		break;
 	case D3D12_RTV_DIMENSION_TEXTURE1D:
 		desc.type = api::resource_view_type::texture_1d;
 		desc.texture.first_level = internal_desc.Texture1D.MipSlice;
@@ -833,7 +890,8 @@ reshade::api::resource_view_desc reshade::d3d12::convert_resource_view_desc(cons
 		desc.type = api::resource_view_type::buffer;
 		desc.buffer.offset = internal_desc.Buffer.FirstElement;
 		desc.buffer.size = internal_desc.Buffer.NumElements;
-		// Missing fields: D3D12_BUFFER_SRV::StructureByteStride, D3D12_BUFFER_SRV::Flags
+		assert(((internal_desc.Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0) == (internal_desc.Format == DXGI_FORMAT_R32_TYPELESS));
+		// Missing fields: D3D12_BUFFER_SRV::StructureByteStride
 		break;
 	case D3D12_SRV_DIMENSION_TEXTURE1D:
 		desc.type = api::resource_view_type::texture_1d;
@@ -912,7 +970,8 @@ reshade::api::resource_view_desc reshade::d3d12::convert_resource_view_desc(cons
 		desc.type = api::resource_view_type::buffer;
 		desc.buffer.offset = internal_desc.Buffer.FirstElement;
 		desc.buffer.size = internal_desc.Buffer.NumElements;
-		// Missing fields: D3D12_BUFFER_UAV::StructureByteStride, D3D12_BUFFER_UAV::CounterOffsetInBytes, D3D12_BUFFER_UAV::Flags
+		assert(((internal_desc.Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0) == (internal_desc.Format == DXGI_FORMAT_R32_TYPELESS));
+		// Missing fields: D3D12_BUFFER_UAV::StructureByteStride, D3D12_BUFFER_UAV::CounterOffsetInBytes
 		break;
 	case D3D12_UAV_DIMENSION_TEXTURE1D:
 		desc.type = api::resource_view_type::texture_1d;
@@ -958,43 +1017,33 @@ reshade::api::shader_desc reshade::d3d12::convert_shader_desc(const D3D12_SHADER
 	return desc;
 }
 
-void reshade::d3d12::convert_input_layout_desc(uint32_t count, const api::input_element *elements, std::vector<D3D12_INPUT_ELEMENT_DESC> &internal_elements)
+void reshade::d3d12::convert_input_element(const api::input_element &desc, D3D12_INPUT_ELEMENT_DESC &internal_desc)
 {
-	internal_elements.reserve(count);
+	internal_desc.SemanticName = desc.semantic;
+	internal_desc.SemanticIndex = desc.semantic_index;
+	internal_desc.Format = convert_format(desc.format);
+	internal_desc.InputSlot = desc.buffer_binding;
+	internal_desc.AlignedByteOffset = desc.offset;
+	internal_desc.InputSlotClass = desc.instance_step_rate > 0 ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+	internal_desc.InstanceDataStepRate = desc.instance_step_rate;
 
-	for (uint32_t i = 0; i < count; ++i)
+	if (desc.semantic == nullptr)
 	{
-		const api::input_element &element = elements[i];
-
-		D3D12_INPUT_ELEMENT_DESC &internal_element = internal_elements.emplace_back();
-		internal_element.SemanticName = element.semantic;
-		internal_element.SemanticIndex = element.semantic_index;
-		internal_element.Format = convert_format(element.format);
-		internal_element.InputSlot = element.buffer_binding;
-		internal_element.AlignedByteOffset = element.offset;
-		internal_element.InputSlotClass = element.instance_step_rate > 0 ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-		internal_element.InstanceDataStepRate = element.instance_step_rate;
+		// Dozen names vertex inputs TEXCOORDx, so follow a similar logic
+		internal_desc.SemanticName = "TEXCOORD";
+		internal_desc.SemanticIndex = desc.location;
 	}
 }
-std::vector<reshade::api::input_element> reshade::d3d12::convert_input_layout_desc(UINT count, const D3D12_INPUT_ELEMENT_DESC *internal_elements)
+reshade::api::input_element reshade::d3d12::convert_input_element(const D3D12_INPUT_ELEMENT_DESC &internal_desc)
 {
-	std::vector<api::input_element> elements;
-	elements.reserve(count);
-
-	for (UINT i = 0; i < count; ++i)
-	{
-		const D3D12_INPUT_ELEMENT_DESC &internal_element = internal_elements[i];
-
-		api::input_element &element = elements.emplace_back();
-		element.semantic = internal_element.SemanticName;
-		element.semantic_index = internal_element.SemanticIndex;
-		element.format = convert_format(internal_element.Format);
-		element.buffer_binding = internal_element.InputSlot;
-		element.offset = internal_element.AlignedByteOffset;
-		element.instance_step_rate = internal_element.InstanceDataStepRate;
-	}
-
-	return elements;
+	api::input_element desc = {};
+	desc.semantic = internal_desc.SemanticName;
+	desc.semantic_index = internal_desc.SemanticIndex;
+	desc.format = convert_format(internal_desc.Format);
+	desc.buffer_binding = internal_desc.InputSlot;
+	desc.offset = internal_desc.AlignedByteOffset;
+	desc.instance_step_rate = internal_desc.InstanceDataStepRate;
+	return desc;
 }
 
 void reshade::d3d12::convert_stream_output_desc(const api::stream_output_desc &desc, D3D12_STREAM_OUTPUT_DESC &internal_desc)
@@ -1680,9 +1729,31 @@ auto reshade::d3d12::convert_descriptor_type_to_heap_type(api::descriptor_type t
 	}
 }
 
-auto reshade::d3d12::convert_shader_visibility(D3D12_SHADER_VISIBILITY visibility) -> api::shader_stage
+auto reshade::d3d12::convert_shader_visibility(api::shader_stage value) -> D3D12_SHADER_VISIBILITY
 {
-	switch (visibility)
+	switch (value)
+	{
+	default:
+		return D3D12_SHADER_VISIBILITY_ALL;
+	case api::shader_stage::vertex:
+		return D3D12_SHADER_VISIBILITY_VERTEX;
+	case api::shader_stage::hull:
+		return D3D12_SHADER_VISIBILITY_HULL;
+	case api::shader_stage::domain:
+		return D3D12_SHADER_VISIBILITY_DOMAIN;
+	case api::shader_stage::geometry:
+		return D3D12_SHADER_VISIBILITY_GEOMETRY;
+	case api::shader_stage::pixel:
+		return D3D12_SHADER_VISIBILITY_PIXEL;
+	case api::shader_stage::amplification:
+		return D3D12_SHADER_VISIBILITY_AMPLIFICATION;
+	case api::shader_stage::mesh:
+		return D3D12_SHADER_VISIBILITY_MESH;
+	}
+}
+auto reshade::d3d12::convert_shader_visibility(D3D12_SHADER_VISIBILITY value) -> api::shader_stage
+{
+	switch (value)
 	{
 	default:
 		assert(false);
@@ -1867,18 +1938,18 @@ void reshade::d3d12::convert_acceleration_structure_build_input(const api::accel
 	switch (geometry.Type)
 	{
 	case D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES:
-		geometry.Triangles.Transform3x4 = (build_input.triangles.transform_buffer.handle != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.transform_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.transform_offset;
+		geometry.Triangles.Transform3x4 = (build_input.triangles.transform_buffer != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.transform_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.transform_offset;
 		geometry.Triangles.IndexFormat = convert_format(build_input.triangles.index_format);
 		geometry.Triangles.VertexFormat = convert_format(build_input.triangles.vertex_format);
 		geometry.Triangles.IndexCount = build_input.triangles.index_count;
 		geometry.Triangles.VertexCount = build_input.triangles.vertex_count;
-		geometry.Triangles.IndexBuffer = (build_input.triangles.index_buffer.handle != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.index_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.index_offset;
-		geometry.Triangles.VertexBuffer.StartAddress = (build_input.triangles.vertex_buffer.handle != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.vertex_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.vertex_offset;
+		geometry.Triangles.IndexBuffer = (build_input.triangles.index_buffer != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.index_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.index_offset;
+		geometry.Triangles.VertexBuffer.StartAddress = (build_input.triangles.vertex_buffer != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.triangles.vertex_buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.triangles.vertex_offset;
 		geometry.Triangles.VertexBuffer.StrideInBytes = build_input.triangles.vertex_stride;
 		break;
 	case D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS:
 		geometry.AABBs.AABBCount = build_input.aabbs.count;
-		geometry.AABBs.AABBs.StartAddress = (build_input.aabbs.buffer.handle != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.aabbs.buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.aabbs.offset;
+		geometry.AABBs.AABBs.StartAddress = (build_input.aabbs.buffer != 0 ? reinterpret_cast<ID3D12Resource *>(build_input.aabbs.buffer.handle)->GetGPUVirtualAddress() : 0) + build_input.aabbs.offset;
 		geometry.AABBs.AABBs.StrideInBytes = build_input.aabbs.stride;
 		break;
 	}

@@ -8,6 +8,7 @@
 #include "ini_file.hpp"
 #include "addon_manager.hpp"
 #include "input.hpp"
+#include <algorithm> // std::all_of, std::find, std::find_if, std::for_each, std::remove_if
 
 extern bool resolve_preset_path(std::filesystem::path &path, std::error_code &ec);
 
@@ -178,7 +179,7 @@ void reshade::runtime::get_uniform_variable_name([[maybe_unused]] api::effect_un
 		else if (*size != 0)
 		{
 			*size = variable->name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -202,7 +203,7 @@ void reshade::runtime::get_uniform_variable_effect_name([[maybe_unused]] api::ef
 		else if (*size != 0)
 		{
 			*size = effect_name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -321,7 +322,7 @@ bool reshade::runtime::get_annotation_string_from_uniform_variable([[maybe_unuse
 				else if (*size != 0)
 				{
 					*size = annotation.copy(value, *size - 1);
-					value[*size++] = '\0';
+					value[*size] = '\0';
 				}
 			}
 
@@ -545,7 +546,7 @@ void reshade::runtime::get_texture_variable_name([[maybe_unused]] api::effect_te
 		else if (*size != 0)
 		{
 			*size = variable->name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -569,7 +570,7 @@ void reshade::runtime::get_texture_variable_effect_name([[maybe_unused]] api::ef
 		else if (*size != 0)
 		{
 			*size = effect_name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -688,7 +689,7 @@ bool reshade::runtime::get_annotation_string_from_texture_variable([[maybe_unuse
 				else if (*size != 0)
 				{
 					*size = annotation.copy(value, *size - 1);
-					value[*size++] = '\0';
+					value[*size] = '\0';
 				}
 			}
 
@@ -862,7 +863,7 @@ void reshade::runtime::get_technique_name([[maybe_unused]] api::effect_technique
 		else if (*size != 0)
 		{
 			*size = tech->name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -886,7 +887,7 @@ void reshade::runtime::get_technique_effect_name([[maybe_unused]] api::effect_te
 		else if (*size != 0)
 		{
 			*size = effect_name.copy(value, *size - 1);
-			value[*size++] = '\0';
+			value[*size] = '\0';
 		}
 	}
 	else
@@ -1005,7 +1006,7 @@ bool reshade::runtime::get_annotation_string_from_technique([[maybe_unused]] api
 				else if (*size != 0)
 				{
 					*size = annotation.copy(value, *size - 1);
-					value[*size++] = '\0';
+					value[*size] = '\0';
 				}
 			}
 
@@ -1286,7 +1287,7 @@ bool reshade::runtime::get_preprocessor_definition_for_effect([[maybe_unused]] c
 			else if (*size != 0)
 			{
 				*size = definitions_string.copy(value, *size - 1);
-				value[*size++] = '\0';
+				value[*size] = '\0';
 			}
 		}
 
@@ -1308,7 +1309,7 @@ bool reshade::runtime::get_preprocessor_definition_for_effect([[maybe_unused]] c
 				else if (*size != 0)
 				{
 					*size = definition_it->second.copy(value, *size - 1);
-					value[*size++] = '\0';
+					value[*size] = '\0';
 				}
 			}
 
@@ -1457,7 +1458,7 @@ void reshade::runtime::get_current_preset_path([[maybe_unused]] char *path, size
 	else if (*size != 0)
 	{
 		*size = path_string.copy(path, *size - 1);
-		path[*size++] = '\0';
+		path[*size] = '\0';
 	}
 #else
 	*size = 0;
@@ -1466,16 +1467,11 @@ void reshade::runtime::get_current_preset_path([[maybe_unused]] char *path, size
 void reshade::runtime::set_current_preset_path([[maybe_unused]] const char *path)
 {
 #if RESHADE_FX
-#if RESHADE_ADDON
-	const bool was_is_in_api_call = _is_in_api_call;
-	_is_in_api_call = true;
-#endif
-
 	std::error_code ec;
 	std::filesystem::path preset_path = std::filesystem::u8path(path);
 
 	// Only change preset when this is a valid preset path
-	if (resolve_preset_path(preset_path, ec) && preset_path != _current_preset_path)
+	if (resolve_preset_path(preset_path, ec))
 	{
 		if (is_loading())
 		{
@@ -1486,19 +1482,20 @@ void reshade::runtime::set_current_preset_path([[maybe_unused]] const char *path
 			// Stop any preset transition that may still be happening
 			_is_in_preset_transition = false;
 
-			// First save current preset, before switching to a new one
-			save_current_preset();
+			// Reload preset even if it is the same as before
+			if (preset_path != _current_preset_path)
+			{
+				// First save current preset, before switching to a new one
+				save_current_preset();
 
-			_current_preset_path = std::move(preset_path);
+				_current_preset_path = std::move(preset_path);
 
-			save_config();
+				save_config();
+			}
+
 			load_current_preset();
 		}
 	}
-
-#if RESHADE_ADDON
-	_is_in_api_call = was_is_in_api_call;
-#endif
 #endif
 }
 

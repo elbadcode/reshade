@@ -82,7 +82,7 @@ const imgui_function_table_19000 init_imgui_function_table_19000() { return {
 	ImGui::GetFontTexUvWhitePixel,
 	ImGui::GetColorU32,
 	ImGui::GetColorU32,
-	ImGui::GetColorU32,
+	[](ImU32 col) -> ImU32 { return ImGui::GetColorU32(col, 1.0f); },
 	ImGui::GetStyleColorVec4,
 	ImGui::GetCursorScreenPos,
 	ImGui::SetCursorScreenPos,

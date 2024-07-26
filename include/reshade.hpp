@@ -11,7 +11,7 @@
 #include <Windows.h>
 
 // Current version of the ReShade API
-#define RESHADE_API_VERSION 11
+#define RESHADE_API_VERSION 13
 
 // Optionally import ReShade API functions when 'RESHADE_API_LIBRARY' is defined instead of using header-only mode
 #if defined(RESHADE_API_LIBRARY) || defined(RESHADE_API_LIBRARY_EXPORT)
@@ -29,15 +29,20 @@ RESHADE_API_LIBRARY_DECL void ReShadeGetBasePath(char *path, size_t *path_size);
 
 RESHADE_API_LIBRARY_DECL bool ReShadeGetConfigValue(HMODULE module, reshade::api::effect_runtime *runtime, const char *section, const char *key, char *value, size_t *value_size);
 RESHADE_API_LIBRARY_DECL void ReShadeSetConfigValue(HMODULE module, reshade::api::effect_runtime *runtime, const char *section, const char *key, const char *value);
+RESHADE_API_LIBRARY_DECL void ReShadeSetConfigArray(HMODULE module, reshade::api::effect_runtime *runtime, const char *section, const char *key, const char *value, size_t value_size);
 
 RESHADE_API_LIBRARY_DECL bool ReShadeRegisterAddon(HMODULE module, uint32_t api_version);
 RESHADE_API_LIBRARY_DECL void ReShadeUnregisterAddon(HMODULE module);
 
 RESHADE_API_LIBRARY_DECL void ReShadeRegisterEvent(reshade::addon_event ev, void *callback);
+RESHADE_API_LIBRARY_DECL void ReShadeRegisterEventForAddon(HMODULE module, reshade::addon_event ev, void *callback);
 RESHADE_API_LIBRARY_DECL void ReShadeUnregisterEvent(reshade::addon_event ev, void *callback);
+RESHADE_API_LIBRARY_DECL void ReShadeUnregisterEventForAddon(HMODULE module, reshade::addon_event ev, void *callback);
 
 RESHADE_API_LIBRARY_DECL void ReShadeRegisterOverlay(const char *title, void(*callback)(reshade::api::effect_runtime *runtime));
+RESHADE_API_LIBRARY_DECL void ReShadeRegisterOverlayForAddon(HMODULE module, const char *title, void(*callback)(reshade::api::effect_runtime *runtime));
 RESHADE_API_LIBRARY_DECL void ReShadeUnregisterOverlay(const char *title, void(*callback)(reshade::api::effect_runtime *runtime));
+RESHADE_API_LIBRARY_DECL void ReShadeUnregisterOverlayForAddon(HMODULE module, const char *title, void(*callback)(reshade::api::effect_runtime *runtime));
 
 RESHADE_API_LIBRARY_DECL bool ReShadeCreateEffectRuntime(reshade::api::device_api api, void *opaque_device, void *opaque_command_queue, void *opaque_swapchain, const char *config_path, reshade::api::effect_runtime **out_runtime);
 RESHADE_API_LIBRARY_DECL void ReShadeDestroyEffectRuntime(reshade::api::effect_runtime *runtime);
@@ -219,6 +224,16 @@ namespace reshade
 		set_config_value<int>(runtime, section, key, value ? 1 : 0);
 	}
 #endif
+	inline void set_config_value(api::effect_runtime *runtime, const char *section, const char *key, const char *value, size_t value_size)
+	{
+#if defined(RESHADE_API_LIBRARY)
+		ReShadeSetConfigArray(nullptr, runtime, section, key, value, value_size);
+#else
+		static const auto func = reinterpret_cast<void(*)(HMODULE, api::effect_runtime *, const char *, const char *, const char *, size_t)>(
+			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeSetConfigArray"));
+		func(internal::get_current_module_handle(), runtime, section, key, value, value_size);
+#endif
+	}
 
 	/// <summary>
 	/// Registers this module as an add-on with ReShade.

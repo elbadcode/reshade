@@ -34,7 +34,6 @@
 #include <stb_image_write.h>
 #include <stb_image_resize2.h>
 #include <d3dcompiler.h>
-#include <sk_hdr_png.hpp>
 
 bool resolve_path(std::filesystem::path &path, std::error_code &ec)
 {
@@ -189,7 +188,7 @@ reshade::runtime::runtime(api::swapchain *swapchain, api::command_queue *graphic
 #endif
 	_config_path(config_path),
 	_screenshot_path(L".\\"),
-	_screenshot_name("%AppName% %Date% %Time%_%TimeMS%"), // Use a timestamp down to the millisecond because users may request more than one screenshot per-second
+	_screenshot_name("%AppName% %Date% %Time%"),
 	_screenshot_post_save_command_arguments("\"%TargetPath%\""),
 	_screenshot_post_save_command_working_directory(L".\\")
 {
@@ -458,8 +457,10 @@ bool reshade::runtime::on_init()
 		_input.reset();
 
 	// GTK 3 enables transparency for windows, which messes with effects that do not return an alpha value, so disable that again
-	if (window != nullptr)
-		utils::set_window_transparency(window, false);
+        if (window != nullptr)
+          utils::set_window_transparency(window, false);
+          
+
 
 	// Reset frame count to zero so effects are loaded in 'update_effects'
 	_frame_count = 0;
@@ -1018,13 +1019,12 @@ void reshade::runtime::load_config()
 #endif
 
 	config_get("SCREENSHOT", "SavePath", _screenshot_path);
+    config_get("SCREENSHOT", "ScreenShotPathSplitAppName", _screenshot_path_split_appname);
 	config_get("SCREENSHOT", "SoundPath", _screenshot_sound_path);
 	config_get("SCREENSHOT", "ClearAlpha", _screenshot_clear_alpha);
 	config_get("SCREENSHOT", "FileFormat", _screenshot_format);
 	config_get("SCREENSHOT", "FileNaming", _screenshot_name);
 	config_get("SCREENSHOT", "JPEGQuality", _screenshot_jpeg_quality);
-	config_get("SCREENSHOT", "HDRBitDepth", _screenshot_hdr_bits);
-	config_get("SCREENSHOT", "CopyToClipboard", _screenshot_clipboard_copy);
 #if RESHADE_FX
 	config_get("SCREENSHOT", "SaveBeforeShot", _screenshot_save_before);
 	config_get("SCREENSHOT", "SavePresetFile", _screenshot_include_preset);
@@ -1045,6 +1045,7 @@ void reshade::runtime::save_config() const
 {
 	ini_file &config = ini_file::load_cache(_config_path);
 
+  config.set("SCREENSHOT", "ScreenShotPathSplitAppName", _screenshot_path_split_appname);
 	config.set("INPUT", "ForceShortcutModifiers", _force_shortcut_modifiers);
 	config.set("INPUT", "KeyScreenshot", _screenshot_key_data);
 #if RESHADE_FX
@@ -1093,8 +1094,7 @@ void reshade::runtime::save_config() const
 	config.set("SCREENSHOT", "FileFormat", _screenshot_format);
 	config.set("SCREENSHOT", "FileNaming", _screenshot_name);
 	config.set("SCREENSHOT", "JPEGQuality", _screenshot_jpeg_quality);
-	config.set("SCREENSHOT", "HDRBitDepth", _screenshot_hdr_bits);
-	config.set("SCREENSHOT", "CopyToClipboard", _screenshot_clipboard_copy);
+   config.set("SCREENSHOT", "ScreenShotPathSplitAppName", _screenshot_path_split_appname);
 #if RESHADE_FX
 	config.set("SCREENSHOT", "SaveBeforeShot", _screenshot_save_before);
 	config.set("SCREENSHOT", "SavePresetFile", _screenshot_include_preset);
@@ -1909,11 +1909,11 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 								continue;
 
 							semantic_index++;
-							assert((effect.uniform_data_storage.size() / 16) <= (224 - semantic_index));
+							assert((effect.uniform_data_storage.size() / 16) <= (255 - semantic_index));
 
 							// Avoid duplicate declarations if the semantic was used multiple times
 							if (hlsl.find(tex.semantic + "_PIXEL_SIZE") == std::string::npos)
-								hlsl += "uniform float2 " + tex.semantic + "_PIXEL_SIZE : register(c" + std::to_string(224 - semantic_index) + ");\n";
+								hlsl += "uniform float2 " + tex.semantic + "_PIXEL_SIZE : register(c" + std::to_string(255 - semantic_index) + ");\n";
 						}
 					}
 
@@ -3375,8 +3375,9 @@ void reshade::runtime::reorder_techniques(std::vector<size_t> &&technique_indice
 void reshade::runtime::load_effects(bool force_load_all)
 {
 	// Build a list of effect files by walking through the effect search paths
-	const std::vector<std::filesystem::path> effect_files =
-		find_files(_effect_search_paths, { L".fx", L".addonfx" });
+  const std::vector<std::filesystem::path> effect_files = find_files(
+      _effect_search_paths, {L".fx", L".addonfx"});
+                //  just a silly little test. worked suprisingly well but I should make an actual addon     {L".fx", L".addonfx", L".hlsl", L".ini", L".txt"});
 
 	if (effect_files.empty())
 		return; // No effect files found, so nothing more to do
@@ -3386,10 +3387,15 @@ void reshade::runtime::load_effects(bool force_load_all)
 	// Have to be initialized at this point or else the threads spawned below will immediately exit without reducing the remaining effects count
 	assert(_is_initialized);
 
+	// Add 46 support for rare cases that might want it. I'm also very curious to see what if anything happens when using reshade alongside 3dmigoto
+	// which includes (optionally) a modified d3dcompiler_46.dll wrapper that allows for exporting hlsl. Probably it will just work as normal but I'll see
 	// Ensure HLSL compiler is loaded before trying to compile effects in Direct3D
 	if (_d3d_compiler_module == nullptr && (_renderer_id & 0xF0000) == 0)
 	{
-		if ((_d3d_compiler_module = LoadLibraryW(L"d3dcompiler_47.dll")) == nullptr &&
+          if ((_d3d_compiler_module = LoadLibraryW(L"d3dcompiler_47.dll")) ==
+                  nullptr &&
+              (_d3d_compiler_module = LoadLibraryW(L"d3dcompiler_46.dll")) ==
+                  nullptr &&
 			(_d3d_compiler_module = LoadLibraryW(L"d3dcompiler_43.dll")) == nullptr)
 		{
 			log::message(log::level::error, "Unable to load HLSL compiler (\"d3dcompiler_47.dll\")!");
@@ -4235,14 +4241,12 @@ void reshade::runtime::render_technique(technique &tech, api::command_list *cmd_
 
 					if (const auto it = _texture_semantic_bindings.find(tex.semantic); it != _texture_semantic_bindings.end())
 					{
-						const api::resource_desc desc = _device->get_resource_desc(_device->get_resource_from_view(it->second.first));
-
 						const float pixel_size[4] = {
-							1.0f / desc.texture.width,
-							1.0f / desc.texture.height
+							1.0f / _effect_width,
+							1.0f / _effect_height
 						};
 
-						cmd_list->push_constants(api::shader_stage::vertex | api::shader_stage::pixel, effect.layout, 0, (244 - semantic_index) * 4, 4, pixel_size);
+						cmd_list->push_constants(api::shader_stage::vertex | api::shader_stage::pixel, effect.layout, 0, (255 - semantic_index) * 4, 4, pixel_size);
 					}
 				}
 			}
@@ -4789,31 +4793,60 @@ static std::string expand_macro_string(const std::string &input, std::vector<std
 	return result;
 }
 
-void reshade::runtime::save_screenshot(const std::string_view postfix)
-{
-	const unsigned int screenshot_count = _screenshot_count;
-
-	std::string screenshot_name = expand_macro_string(_screenshot_name, {
-		{ "AppName", g_target_executable_path.stem().u8string() },
+void reshade::runtime::save_screenshot(const std::string_view postfix) {
+  const unsigned int screenshot_count = _screenshot_count;
+  std::filesystem::path _current_screenshot_path;
+  if (_screenshot_path_split_appname) {
+	 // I initially removed the appname from the macro to prevent having screenshots named AppName\AppName
+	 // but removing entirely might be too heavy handed?
+    // Maybe this is okay? it would remove the appname and leading whitespace if people have not changed their target path but select this option
+    if (_screenshot_name == "%AppName% %Date% %Time%") _screenshot_name = "%Date% %Time%";
+    std::string screenshot_name = expand_macro_string(_screenshot_name,		
+         {{"AppName", g_target_executable_path.stem().u8string()},
 #if RESHADE_FX
-		{ "PresetName",  _current_preset_path.stem().u8string() },
-		{ "Count", std::to_string(screenshot_count) }
+        {"PresetName", _current_preset_path.stem().u8string()},
+         {"Count", std::to_string(screenshot_count)}
 #endif
-	});
+        });
 
-	screenshot_name += postfix;
-	screenshot_name += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
+    screenshot_name += postfix;
+    screenshot_name += (_screenshot_format == 0   ? ".bmp"
+                        : _screenshot_format == 1 ? ".png"
+                                                  : ".jpg");
 
-	const std::filesystem::path screenshot_path = g_reshade_base_path / _screenshot_path / std::filesystem::u8path(screenshot_name);
+    if (!std::filesystem::exists(g_reshade_base_path / _screenshot_path /
+                                 g_target_executable_path.stem()))
+      std::filesystem::create_directories(g_reshade_base_path /
+                                          _screenshot_path /
+                                          g_target_executable_path.stem());
+    _current_screenshot_path = g_reshade_base_path / _screenshot_path /
+                               g_target_executable_path.stem() /
+                               std::filesystem::u8path(screenshot_name);
+  } else {
+    std::string screenshot_name = expand_macro_string(
+        _screenshot_name,
+        {{"AppName", g_target_executable_path.stem().u8string()},
+#if RESHADE_FX
+         {"PresetName", _current_preset_path.stem().u8string()},
+         {"Count", std::to_string(screenshot_count)}
+#endif
+        });
 
-	log::message(log::level::info, "Saving screenshot to '%s'.", screenshot_path.u8string().c_str());
+    screenshot_name += postfix;
+    screenshot_name += (_screenshot_format == 0   ? ".bmp"
+                        : _screenshot_format == 1 ? ".png"
+                                                  : ".jpg");
 
-	_last_screenshot_save_successful = true;
+    _current_screenshot_path = g_reshade_base_path / _screenshot_path /
+                               std::filesystem::u8path(screenshot_name);
+  }
+  const std::filesystem::path screenshot_path = _current_screenshot_path;
+  log::message(log::level::info, "Saving screenshot to '%s'.",
+               screenshot_path.u8string().c_str());
 
-	size_t bytes_per_pixel =
-		_back_buffer_format == api::format::r16g16b16a16_float ? 8 : 4;
+  _last_screenshot_save_successful = true;
 
-	if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * bytes_per_pixel);
+	if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * 4);
 		capture_screenshot(pixels.data()))
 	{
 #if RESHADE_FX
@@ -4826,17 +4859,9 @@ void reshade::runtime::save_screenshot(const std::string_view postfix)
 			utils::play_sound_async(g_reshade_base_path / _screenshot_sound_path);
 
 		_worker_threads.emplace_back([this, screenshot_count, screenshot_path, pixels = std::move(pixels), include_preset]() mutable {
-			auto screenshot_format = _screenshot_format;
-
-			// Use PNG for HDR; no tonemapping is implemented, so this is the only way to capture a screenshot in HDR.
-			if (((_back_buffer_format == api::format::r10g10b10a2_unorm  ||
-			      _back_buffer_format == api::format::b10g10r10a2_unorm) && _back_buffer_color_space == api::color_space::hdr10_st2084) ||
-				 (_back_buffer_format == api::format::r16g16b16a16_float && _back_buffer_color_space == api::color_space::extended_srgb_linear))
-				screenshot_format = 3;
-
 			// Remove alpha channel
 			int comp = 4;
-			if (_screenshot_clear_alpha && screenshot_format != 3)
+			if (_screenshot_clear_alpha)
 			{
 				comp = 3;
 				for (size_t i = 0; i < static_cast<size_t>(_width) * static_cast<size_t>(_height); ++i)
@@ -4859,7 +4884,7 @@ void reshade::runtime::save_screenshot(const std::string_view postfix)
 					fwrite(data, 1, size, static_cast<FILE *>(context));
 				};
 
-				switch (screenshot_format)
+				switch (_screenshot_format)
 				{
 				case 0:
 					save_success = stbi_write_bmp_to_func(write_callback, file, _width, _height, comp, pixels.data()) != 0;
@@ -4875,11 +4900,6 @@ void reshade::runtime::save_screenshot(const std::string_view postfix)
 					break;
 				case 2:
 					save_success = stbi_write_jpg_to_func(write_callback, file, _width, _height, comp, pixels.data(), _screenshot_jpeg_quality) != 0;
-					break;
-
-				// Implicit HDR PNG when running in HDR
-				case 3:
-					save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str (), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
 					break;
 				}
 
@@ -4925,10 +4945,14 @@ void reshade::runtime::save_screenshot(const std::string_view postfix)
 }
 bool reshade::runtime::execute_screenshot_post_save_command(const std::filesystem::path &screenshot_path, unsigned int screenshot_count)
 {
-	if (_screenshot_post_save_command.empty() || _screenshot_post_save_command.extension() != L".exe")
-		return false;
+//allow directly calling runnable extensions. Ok just calling directly may or may not have worked, I think windows UAC stuff was giving me trouble but either way
+//going to allow calling these directly for the user and just handle it as a cmd call behind the scenes
+  if (_screenshot_post_save_command.empty() || (std::set<std::wstring>{L".exe", L".py", L".bat", L".cmd", L".sh"}.count(_screenshot_post_save_command.extension().wstring()) == 0))
+      return false;
 
 	std::string command_line;
+    if (_screenshot_post_save_command.extension() == L".py")  command_line = "python ";
+    else if (_screenshot_post_save_command.extension() != L".exe") command_line = "C:\Windows32\cmd.exe /C ";
 	command_line += '\"';
 	command_line += _screenshot_post_save_command.u8string();
 	command_line += '\"';
@@ -4971,10 +4995,9 @@ bool reshade::runtime::get_texture_data(api::resource resource, api::resource_us
 		view_format != api::format::r8g8b8x8_unorm &&
 		view_format != api::format::b8g8r8x8_unorm &&
 		view_format != api::format::r10g10b10a2_unorm &&
-		view_format != api::format::b10g10r10a2_unorm &&
-		view_format != api::format::r16g16b16a16_float)
+		view_format != api::format::b10g10r10a2_unorm)
 	{
-		log::message(log::level::error, "Screenshots are not supported for format %u!", static_cast<uint32_t>(desc.texture.format));
+		log::message(log::level::error, "Screenshots are not supported for format %u! HDR needs to be disabled for screenshots to work.", static_cast<uint32_t>(desc.texture.format));
 		return false;
 	}
 
@@ -5003,7 +5026,7 @@ bool reshade::runtime::get_texture_data(api::resource resource, api::resource_us
 	if (_device->map_texture_region(intermediate, 0, nullptr, api::map_access::read_only, &mapped_data))
 	{
 		auto mapped_pixels = static_cast<const uint8_t *>(mapped_data.data);
-		const uint32_t pixels_row_pitch = desc.texture.format != api::format::r16g16b16a16_float ? desc.texture.width * 4 : desc.texture.width * 8;
+		const uint32_t pixels_row_pitch = desc.texture.width * 4;
 
 		for (size_t y = 0; y < desc.texture.height; ++y, pixels += pixels_row_pitch, mapped_pixels += mapped_data.row_pitch)
 		{
@@ -5046,31 +5069,17 @@ bool reshade::runtime::get_texture_data(api::resource resource, api::resource_us
 				break;
 			case api::format::r10g10b10a2_unorm:
 			case api::format::b10g10r10a2_unorm:
-				// SDR: Quantize the image down to 8-bpc for compatibility with standard screenshot formats
-				if (_back_buffer_color_space != api::color_space::hdr10_st2084)
+				for (size_t x = 0; x < pixels_row_pitch; x += 4)
 				{
-					for (size_t x = 0; x < pixels_row_pitch; x += 4)
-					{
-						const uint32_t rgba = *reinterpret_cast<const uint32_t *>(mapped_pixels + x);
-						// Divide by 4 to get 10-bit range (0-1023) into 8-bit range (0-255)
-						pixels[x + 0] = (( rgba & 0x000003FF)        /  4) & 0xFF;
-						pixels[x + 1] = (((rgba & 0x000FFC00) >> 10) /  4) & 0xFF;
-						pixels[x + 2] = (((rgba & 0x3FF00000) >> 20) /  4) & 0xFF;
-						pixels[x + 3] = (((rgba & 0xC0000000) >> 30) * 85) & 0xFF;
-						if (view_format == api::format::b10g10r10a2_unorm)
-							std::swap(pixels[x + 0], pixels[x + 2]);
-					}
+					const uint32_t rgba = *reinterpret_cast<const uint32_t *>(mapped_pixels + x);
+					// Divide by 4 to get 10-bit range (0-1023) into 8-bit range (0-255)
+					pixels[x + 0] = (( rgba & 0x000003FF)        /  4) & 0xFF;
+					pixels[x + 1] = (((rgba & 0x000FFC00) >> 10) /  4) & 0xFF;
+					pixels[x + 2] = (((rgba & 0x3FF00000) >> 20) /  4) & 0xFF;
+					pixels[x + 3] = (((rgba & 0xC0000000) >> 30) * 85) & 0xFF;
+					if (view_format == api::format::b10g10r10a2_unorm)
+						std::swap(pixels[x + 0], pixels[x + 2]);
 				}
-				// HDR10: Keep the original data, do not convert to 8-bpc
-				else
-				{
-					std::memcpy(pixels, mapped_pixels, pixels_row_pitch);
-				}
-				break;
-			case api::format::r16g16b16a16_float:
-				// FP16 is implicitly always scRGB
-				assert(_back_buffer_color_space == api::color_space::extended_srgb_linear);
-				std::memcpy(pixels, mapped_pixels, pixels_row_pitch);
 				break;
 			}
 		}

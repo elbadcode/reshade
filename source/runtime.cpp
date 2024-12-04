@@ -3375,9 +3375,7 @@ void reshade::runtime::reorder_techniques(std::vector<size_t> &&technique_indice
 void reshade::runtime::load_effects(bool force_load_all)
 {
 	// Build a list of effect files by walking through the effect search paths
-  const std::vector<std::filesystem::path> effect_files = find_files(
-      _effect_search_paths, {L".fx", L".addonfx"});
-                //  just a silly little test. worked suprisingly well but I should make an actual addon     {L".fx", L".addonfx", L".hlsl", L".ini", L".txt"});
+  const std::vector<std::filesystem::path> effect_files = find_files(_effect_search_paths, {L".fx", L".addonfx"});
 
 	if (effect_files.empty())
 		return; // No effect files found, so nothing more to do
@@ -3387,8 +3385,7 @@ void reshade::runtime::load_effects(bool force_load_all)
 	// Have to be initialized at this point or else the threads spawned below will immediately exit without reducing the remaining effects count
 	assert(_is_initialized);
 
-	// Add 46 support for rare cases that might want it. I'm also very curious to see what if anything happens when using reshade alongside 3dmigoto
-	// which includes (optionally) a modified d3dcompiler_46.dll wrapper that allows for exporting hlsl. Probably it will just work as normal but I'll see
+	// Add 46 support for rare cases that might need it. 3dmigoto ships an altered version of 46 but this change has not done anything for better or worse with it 
 	// Ensure HLSL compiler is loaded before trying to compile effects in Direct3D
 	if (_d3d_compiler_module == nullptr && (_renderer_id & 0xF0000) == 0)
 	{

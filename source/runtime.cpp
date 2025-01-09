@@ -188,14 +188,11 @@ reshade::runtime::runtime(api::swapchain *swapchain, api::command_queue *graphic
 	_texture_search_paths({ L".\\" }),
 #endif
 	_config_path(config_path),
-	_screenshot_path(L".\\"),
-	_screenshot_name("%AppName% %Date% %Time%_%TimeMS%"), // Use a timestamp down to the millisecond because users may request more than one screenshot per-second
+	_screenshot_path(L".\\%AppName%\\%BeforeAfter%"), //Add appname macro to path by default. BeforeAfter macro only takes effect if the option is enabled (it does cause a double slash to appear in the screenshot save tooltip
+	_screenshot_name("%Date% %Time%_%TimeMS%"), // Use a timestamp down to the millisecond because users may request more than one screenshot per-second
 	_screenshot_post_save_command_arguments("\"%TargetPath%\""),
 	_screenshot_post_save_command_working_directory(L".\\")
-{
-	assert(swapchain != nullptr && graphics_queue != nullptr);
-
-	_device->get_property(api::device_properties::vendor_id, &_vendor_id);
+{+
 	_device->get_property(api::device_properties::device_id, &_device_id);
 
 	_device->get_property(api::device_properties::api_version, &_renderer_id);
@@ -659,7 +656,7 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 	update_effects();
 
 	if (_should_save_screenshot && _screenshot_save_before && _effects_enabled && !_effects_rendered_this_frame)
-		save_screenshot(" original");
+		save_screenshot("Before"); //rename for clarity and consistency
 
 	if (_back_buffer_resolved != 0)
 	{
@@ -674,7 +671,7 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 #endif
 
 	if (_should_save_screenshot)
-		save_screenshot();
+          save_screenshot(_screenshot_save_before ? "After" : ""); //likewise
 
 	_frame_count++;
 	const auto current_time = std::chrono::high_resolution_clock::now();
@@ -692,7 +689,7 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 		|| (_preview_texture != 0 && _effects_enabled)
 #endif
 		))
-		save_screenshot(" overlay");
+		save_screenshot("Overlay");
 #endif
 
 	// All screenshots were created at this point, so reset request
@@ -4756,269 +4753,323 @@ template <> void reshade::runtime::set_uniform_value<uint32_t>(uniform &variable
 
 static std::string expand_macro_string(const std::string &input, std::vector<std::pair<std::string, std::string>> macros)
 {
-	const auto now = std::chrono::system_clock::now();
-	const auto now_seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    const auto now = std::chrono::system_clock::now();
+    const auto now_seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
 
-	char timestamp[21];
-	const std::time_t t = std::chrono::system_clock::to_time_t(now_seconds);
-	struct tm tm; localtime_s(&tm, &t);
+    char timestamp[21];
+    const std::time_t t = std::chrono::system_clock::to_time_t(now_seconds);
+    struct tm tm; localtime_s(&tm, &t);
 
-	std::snprintf(timestamp, std::size(timestamp), "%.4d-%.2d-%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-	macros.emplace_back("Date", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.4d", tm.tm_year + 1900);
-	macros.emplace_back("DateYear", timestamp);
-	macros.emplace_back("Year", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mon + 1);
-	macros.emplace_back("DateMonth", timestamp);
-	macros.emplace_back("Month", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mday);
-	macros.emplace_back("DateDay", timestamp);
-	macros.emplace_back("Day", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.4d-%.2d-%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+    macros.emplace_back("Date", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.4d", tm.tm_year + 1900);
+    macros.emplace_back("DateYear", timestamp);
+    macros.emplace_back("Year", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mon + 1);
+    macros.emplace_back("DateMonth", timestamp);
+    macros.emplace_back("Month", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mday);
+    macros.emplace_back("DateDay", timestamp);
+    macros.emplace_back("Day", timestamp);
 
-	std::snprintf(timestamp, std::size(timestamp), "%.2d-%.2d-%.2d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-	macros.emplace_back("Time", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_hour);
-	macros.emplace_back("TimeHour", timestamp);
-	macros.emplace_back("Hour", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_min);
-	macros.emplace_back("TimeMinute", timestamp);
-	macros.emplace_back("Minute", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_sec);
-	macros.emplace_back("TimeSecond", timestamp);
-	macros.emplace_back("Second", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.3lld", std::chrono::duration_cast<std::chrono::milliseconds>(now - now_seconds).count());
-	macros.emplace_back("TimeMillisecond", timestamp);
-	macros.emplace_back("Millisecond", timestamp);
-	macros.emplace_back("TimeMS", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d-%.2d-%.2d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    macros.emplace_back("Time", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_hour);
+    macros.emplace_back("TimeHour", timestamp);
+    macros.emplace_back("Hour", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_min);
+    macros.emplace_back("TimeMinute", timestamp);
+    macros.emplace_back("Minute", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_sec);
+    macros.emplace_back("TimeSecond", timestamp);
+    macros.emplace_back("Second", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.3lld", std::chrono::duration_cast<std::chrono::milliseconds>(now - now_seconds).count());
+    macros.emplace_back("TimeMillisecond", timestamp);
+    macros.emplace_back("Millisecond", timestamp);
+    macros.emplace_back("TimeMS", timestamp);
+ std::string result;
+    for (size_t offset = 0, macro_beg, macro_end; offset < input.size(); offset = macro_end + 1)
+    {
+        macro_beg = input.find('%', offset);
+        macro_end = input.find('%', macro_beg + 1);
 
-	std::string result;
+        if (macro_beg == std::string::npos || macro_end == std::string::npos)
+        {
+            result += input.substr(offset);
+            break;
+        }
+        else
+        {
+            result += input.substr(offset, macro_beg - offset);
 
-	for (size_t offset = 0, macro_beg, macro_end; offset < input.size(); offset = macro_end + 1)
-	{
-		macro_beg = input.find('%', offset);
-		macro_end = input.find('%', macro_beg + 1);
+            if (macro_end == macro_beg + 1) // Handle case of %% to escape percentage symbol
+            {
+                result += '%';
+                continue;
+            }
+        }
 
-		if (macro_beg == std::string::npos || macro_end == std::string::npos)
-		{
-			result += input.substr(offset);
-			break;
-		}
-		else
-		{
-			result += input.substr(offset, macro_beg - offset);
+        std::string_view replacing(input);
+        replacing = replacing.substr(macro_beg + 1, macro_end - (macro_beg + 1));
+        size_t colon_pos = replacing.find(':');
 
-			if (macro_end == macro_beg + 1) // Handle case of %% to escape percentage symbol
-			{
-				result += '%';
-				continue;
-			}
-		}
+        std::string name;
+        if (colon_pos == std::string_view::npos)
+            name = replacing;
+        else
+            name = replacing.substr(0, colon_pos);
 
-		std::string_view replacing(input);
-		replacing = replacing.substr(macro_beg + 1, macro_end - (macro_beg + 1));
-		size_t colon_pos = replacing.find(':');
+        std::string value;
+        for (const auto &macro : macros) // Assuming macro.first and macro.second are the right members
+        {
+            if (_stricmp(name.c_str(), macro.first.c_str()) == 0)
+            {
+                value = macro.second;
+                break;
+            }
+        }
 
-		std::string name;
-		if (colon_pos == std::string_view::npos)
-			name = replacing;
-		else
-			name = replacing.substr(0, colon_pos);
+        if (value.empty()) { // Check if macro value is empty
+            if (colon_pos != std::string::npos) {
+                result += replacing.substr(colon_pos + 1).data(); // Only append what's after the colon if exists
+            }
+        } else {
+            // Proceed with normal expansion
+            if (colon_pos == std::string_view::npos)
+            {
+                result += value;
+            }
+            else
+            {
+                std::string_view param = replacing.substr(colon_pos + 1);
 
-		std::string value;
-		for (const std::pair<std::string, std::string> &macro : macros)
-		{
-			if (_stricmp(name.c_str(), macro.first.c_str()) == 0)
-			{
-				value = macro.second;
-				break;
-			}
-		}
+                if (const size_t insert_pos = param.find('$');
+                    insert_pos != std::string_view::npos)
+                {
+                    result += param.substr(0, insert_pos);
+                    result += value;
+                    result += param.substr(insert_pos + 1);
+                }
+                else
+                {
+                    result += param;
+                }
+            }
+        }
+    }
 
-		if (colon_pos == std::string_view::npos)
-		{
-			result += value;
-		}
-		else
-		{
-			std::string_view param = replacing.substr(colon_pos + 1);
-
-			if (const size_t insert_pos = param.find('$');
-				insert_pos != std::string_view::npos)
-			{
-				result += param.substr(0, insert_pos);
-				result += value;
-				result += param.substr(insert_pos + 1);
-			}
-			else
-			{
-				result += param;
-			}
-		}
-	}
-
-	return result;
+    return result;
 }
 
-void reshade::runtime::save_screenshot(const std::string_view postfix)
+void reshade::runtime::save_screenshot(const std::string_view postfix) {
+  const unsigned int screenshot_count = _screenshot_count;
+
+// Restructure method to allow Path, and Name to use a singular *mutable* set of macros for slightly different function
+  std::vector<std::pair<std::string, std::string>> macros = {
+// New macro with appropriate GUI label to explain usage
+      {"BeforeAfter", std::string(postfix)},
+      {"AppName", g_target_executable_path.stem().u8string()},
+#if RESHADE_FX
+      {"PresetName", _current_preset_path.stem().u8string()},
+#endif
+  };
+
+// Expand macros in path. Directory separators can *only* be typed in path input box
+// Screenshot name input box has unchanged behavior, so disallows directory separators
+// Alternatively the two fields can be merged into a single path input field but this should reduce confusion
+// Path input box handles trailing or duplicated slashes. The only awkward things here are that macros break the browser component 
+// and autofilling in the base path fills up too much of the input field
+// Path excludes count because that would be insane to have in your path (would generate a new folder for each screenshot)
+// I did experiment with having a single unified input field which notably OBS has, 
+// however I couldn't properly handle the possibility of duplicate slashes breaking things when I removed the filter preventing slashes in string fields
+// And that would be a breaking change since it removes a config option. I think this works best, if you want a unified choice I think we need a dedicated input field type
+// As long as we're good with the BeforeAfter change there is still some leeway to adjust this later
+  std::string path_str = expand_macro_string(_screenshot_path.u8string(), macros);
+  std::filesystem::path expanded_path = std::filesystem::u8path(path_str);
+
+#if RESHADE_FX
+  macros.push_back({"Count", std::to_string(screenshot_count)});
+#endif
+
+  // Now expand macros in filename with count included
+  std::string screenshot_name = expand_macro_string(_screenshot_name, macros);
+
+  // Trim leading and trailing whitespaces from the name
+  screenshot_name.erase(0, screenshot_name.find_first_not_of(" \t\n\r\f\v"));
+  screenshot_name.erase(screenshot_name.find_last_not_of(" \t\n\r\f\v") + 1);
+
+  // If save before/after option is checked but not used as a macro, append it to the filename (old behavior)
+  bool before_after_used = (path_str.find(std::string(postfix)) != std::string::npos) ||
+                           (screenshot_name.find(std::string(postfix)) != std::string::npos);
+  if (_screenshot_save_before && !before_after_used) {
+    screenshot_name += "_"+ std::string( postfix);
+  }
+
+screenshot_name += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
+
+const std::filesystem::path screenshot_path = g_reshade_base_path / expanded_path  / std::filesystem::u8path(screenshot_name);
+
+log::message(log::level::info, "Saving screenshot to '%s'.", screenshot_path.u8string().c_str());
+
+_last_screenshot_save_successful = true;
+
+if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * 4);
+    capture_screenshot(pixels.data()))
 {
-	const unsigned int screenshot_count = _screenshot_count;
-
-	std::string screenshot_name = expand_macro_string(_screenshot_name, {
-		{ "AppName", g_target_executable_path.stem().u8string() },
 #if RESHADE_FX
-		{ "PresetName",  _current_preset_path.stem().u8string() },
-		{ "Count", std::to_string(screenshot_count) }
-#endif
-	});
-
-	screenshot_name += postfix;
-	screenshot_name += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
-
-	const std::filesystem::path screenshot_path = g_reshade_base_path / _screenshot_path / std::filesystem::u8path(screenshot_name);
-
-	log::message(log::level::info, "Saving screenshot to '%s'.", screenshot_path.u8string().c_str());
-
-	_last_screenshot_save_successful = true;
-
-	size_t bytes_per_pixel =
-		_back_buffer_format == api::format::r16g16b16a16_float ? 8 : 4;
-
-	if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * bytes_per_pixel);
-		capture_screenshot(pixels.data()))
-	{
-#if RESHADE_FX
-		const bool include_preset = _screenshot_include_preset && postfix.empty() && ini_file::flush_cache(_current_preset_path);
+// Save the preset alongside the After screenshot to preserve expected behavior
+// If a user can't find it that's probably their own fault... Could instead or as well write to base screenshot dir
+// WIP addon will introduce easy way to interact with screenshot presets so if people use that it actually won't matter where its saved
+  const bool include_preset =
+      _screenshot_include_preset && postfix != "Before" && postfix != "Overlay" &&
+              ini_file::flush_cache(_current_preset_path);
 #else
-		const bool include_preset = false;
+        const bool include_preset = false;
 #endif
-		// Play screenshot sound
-		if (!_screenshot_sound_path.empty())
-			utils::play_sound_async(g_reshade_base_path / _screenshot_sound_path);
+        // Play screenshot sound
+        if (!_screenshot_sound_path.empty() )
+            utils::play_sound_async(g_reshade_base_path / _screenshot_sound_path);
 
-		_worker_threads.emplace_back([this, screenshot_count, screenshot_path, pixels = std::move(pixels), include_preset]() mutable {
-			auto screenshot_format = _screenshot_format;
+        _worker_threads.emplace_back([this, screenshot_count, screenshot_path, postfix, pixels = std::move(pixels), include_preset]() mutable {
+            auto screenshot_format = _screenshot_format;
 
-			// Use PNG for HDR; no tonemapping is implemented, so this is the only way to capture a screenshot in HDR.
-			if (((_back_buffer_format == api::format::r10g10b10a2_unorm  ||
-			      _back_buffer_format == api::format::b10g10r10a2_unorm) && _back_buffer_color_space == api::color_space::hdr10_st2084) ||
-				 (_back_buffer_format == api::format::r16g16b16a16_float && _back_buffer_color_space == api::color_space::extended_srgb_linear))
-				screenshot_format = 3;
+            // Use PNG for HDR; no tonemapping is implemented, so this is the only way to capture a screenshot in HDR.
+            if (((_back_buffer_format == api::format::r10g10b10a2_unorm  ||
+                  _back_buffer_format == api::format::b10g10r10a2_unorm) && _back_buffer_color_space == api::color_space::hdr10_st2084) ||
+                 (_back_buffer_format == api::format::r16g16b16a16_float && _back_buffer_color_space == api::color_space::extended_srgb_linear))
+                screenshot_format = 3;
+            // Remove alpha channel
+            int comp = 4;
+            if (_screenshot_clear_alpha && screenshot_format != 3)
+            {
+                comp = 3;
+                for (size_t i = 0; i < static_cast<size_t>(_width) * static_cast<size_t>(_height); ++i)
+                    *reinterpret_cast<uint32_t *>(pixels.data() + 3 * i) = *reinterpret_cast<const uint32_t *>(pixels.data() + 4 * i);
+            }
 
-			// Remove alpha channel
-			int comp = 4;
-			if (_screenshot_clear_alpha && screenshot_format != 3)
-			{
-				comp = 3;
-				for (size_t i = 0; i < static_cast<size_t>(_width) * static_cast<size_t>(_height); ++i)
-					*reinterpret_cast<uint32_t *>(pixels.data() + 3 * i) = *reinterpret_cast<const uint32_t *>(pixels.data() + 4 * i);
-			}
+            // Create screenshot directory if it does not exist
+			// Does not work if your reshade base path is in the C drive, which should never be the case but just putting that out there
+            std::error_code ec;
+            _screenshot_directory_creation_successful = true;
+            if (!std::filesystem::exists(screenshot_path.parent_path(), ec))
+                if (!(_screenshot_directory_creation_successful = std::filesystem::create_directories(screenshot_path.parent_path(), ec)))
+                    log::message(log::level::error, "Failed to create screenshot directory '%s' with error code %d!", screenshot_path.parent_path().u8string().c_str(), ec.value());
 
-			// Create screenshot directory if it does not exist
-			std::error_code ec;
-			_screenshot_directory_creation_successful = true;
-			if (!std::filesystem::exists(screenshot_path.parent_path(), ec))
-				if (!(_screenshot_directory_creation_successful = std::filesystem::create_directories(screenshot_path.parent_path(), ec)))
-					log::message(log::level::error, "Failed to create screenshot directory '%s' with error code %d!", screenshot_path.parent_path().u8string().c_str(), ec.value());
 
-			// Default to a save failure unless it is reported to succeed below
-			bool save_success = false;
+            // Default to a save failure unless it is reported to succeed below
+            bool save_success = false;
 
-			if (FILE *const file = _wfsopen(screenshot_path.c_str(), L"wb", SH_DENYNO))
-			{
-				const auto write_callback = [](void *context, void *data, int size) {
-					fwrite(data, 1, size, static_cast<FILE *>(context));
-				};
+            if (FILE *const file = _wfsopen(screenshot_path.c_str(), L"wb", SH_DENYNO))
+            {
+                const auto write_callback = [](void *context, void *data, int size) {
+                    fwrite(data, 1, size, static_cast<FILE *>(context));
+                };
 
-				switch (screenshot_format)
-				{
-				case 0:
-					save_success = stbi_write_bmp_to_func(write_callback, file, _width, _height, comp, pixels.data()) != 0;
-					break;
-				case 1:
+                switch (screenshot_format)
+                {
+                case 0:
+                    save_success = stbi_write_bmp_to_func(write_callback, file, _width, _height, comp, pixels.data()) != 0;
+                    break;
+                case 1:
 #if 1
-					if (std::vector<uint8_t> encoded_data;
-						fpng::fpng_encode_image_to_memory(pixels.data(), _width, _height, comp, encoded_data))
-						save_success = fwrite(encoded_data.data(), 1, encoded_data.size(), file) == encoded_data.size();
+                    if (std::vector<uint8_t> encoded_data;
+                        fpng::fpng_encode_image_to_memory(pixels.data(), _width, _height, comp, encoded_data))
+                        save_success = fwrite(encoded_data.data(), 1, encoded_data.size(), file) == encoded_data.size();
 #else
-					save_success = stbi_write_png_to_func(write_callback, file, _width, _height, comp, pixels.data(), 0) != 0;
+                    save_success = stbi_write_png_to_func(write_callback, file, _width, _height, comp, pixels.data(), 0) != 0;
 #endif
-					break;
-				case 2:
-					save_success = stbi_write_jpg_to_func(write_callback, file, _width, _height, comp, pixels.data(), _screenshot_jpeg_quality) != 0;
-					break;
+                    break;
+                case 2:
+                    save_success = stbi_write_jpg_to_func(write_callback, file, _width, _height, comp, pixels.data(), _screenshot_jpeg_quality) != 0;
+                    break;
+                // Implicit HDR PNG when running in HDR
+                case 3:
+                    save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str (), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
+                    break;
+                }
 
-				// Implicit HDR PNG when running in HDR
-				case 3:
-					save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str (), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
-					break;
-				}
+                if (ferror(file))
+                    save_success = false;
 
-				if (ferror(file))
-					save_success = false;
+                fclose(file);
+            }
 
-				fclose(file);
-			}
-
-			if (save_success)
-			{
-				execute_screenshot_post_save_command(screenshot_path, screenshot_count);
+            if (save_success)
+            {
+                // couldn't think of another way to get the postfix to the post save command that doesn't involve some nasty parsing
+                execute_screenshot_post_save_command(screenshot_path, screenshot_count, std::string(postfix));
 
 #if RESHADE_FX
-				if (include_preset)
-				{
-					std::filesystem::path screenshot_preset_path = screenshot_path;
-					screenshot_preset_path.replace_extension(L".ini");
+                if (include_preset)
+                {
+                    // This behavior is unchanged, we just disabled calling it for the before/overlay cases
+                    std::filesystem::path screenshot_preset_path = screenshot_path;
+                    screenshot_preset_path.replace_extension(L".ini");
 
-					// Preset was flushed to disk, so can just copy it over to the new location
-					if (!std::filesystem::copy_file(_current_preset_path, screenshot_preset_path, std::filesystem::copy_options::overwrite_existing, ec))
-						log::message(log::level::error, "Failed to copy preset file for screenshot to '%s' with error code %d!", screenshot_preset_path.u8string().c_str(), ec.value());
-				}
+                    // Preset was flushed to disk, so can just copy it over to the new location
+                    if (!std::filesystem::copy_file(_current_preset_path, screenshot_preset_path, std::filesystem::copy_options::overwrite_existing, ec))
+                        log::message(log::level::error, "Failed to copy preset file for screenshot to '%s' with error code %d!", screenshot_preset_path.u8string().c_str(), ec.value());
+                }
 #endif
 
 #if RESHADE_ADDON
-				invoke_addon_event<addon_event::reshade_screenshot>(this, screenshot_path.u8string().c_str());
+                invoke_addon_event<addon_event::reshade_screenshot>(this, screenshot_path.u8string().c_str());
 #endif
-			}
-			else
-			{
-				log::message(log::level::error, "Failed to write screenshot to '%s'!", screenshot_path.u8string().c_str());
-			}
+            }
+            else
+            {
+                log::message(log::level::error, "Failed to write screenshot to '%s'!", screenshot_path.u8string().c_str());
+            }
 
-			if (_last_screenshot_save_successful)
-			{
-				_last_screenshot_time = std::chrono::high_resolution_clock::now();
-				_last_screenshot_file = screenshot_path;
-				_last_screenshot_save_successful = save_success;
-			}
-		});
-	}
+            if (_last_screenshot_save_successful)
+            {
+                _last_screenshot_time = std::chrono::high_resolution_clock::now();
+                _last_screenshot_file = screenshot_path;
+                _last_screenshot_save_successful = save_success;
+            }
+        });
+    }
 }
-bool reshade::runtime::execute_screenshot_post_save_command(const std::filesystem::path &screenshot_path, unsigned int screenshot_count)
+bool reshade::runtime::execute_screenshot_post_save_command(const std::filesystem::path &screenshot_path, unsigned int screenshot_count,  std::string postfix)
 {
-	if (_screenshot_post_save_command.empty() || _screenshot_post_save_command.extension() != L".exe")
-		return false;
+	// in truth you could always just run cmd /C python yourscript.py but this makes it a bit less of a pain
+	// If there's any security concern then it was already present so perhaps this should be addon only
+	if (_screenshot_post_save_command.empty() ||
+      (std::set<std::wstring>{L".exe", L".py", L".pyw", L".bat"}
+           .count(_screenshot_post_save_command.extension().wstring()) == 0))
+      return false;
 
-	std::string command_line;
+ std::string command_line;
+ if (_screenshot_post_save_command.extension() != L".exe")
+  {
+      // technically not needed if they installed python correctly but if we're gonna handle it we may as well make sure its done right
+      if (_screenshot_post_save_command.extension() == L".py" ||
+          _screenshot_post_save_command.extension() == L".pyw")
+        command_line = "python ";
+	  else
+		  command_line = "cmd /C ";
+  }
 	command_line += '\"';
 	command_line += _screenshot_post_save_command.u8string();
 	command_line += '\"';
 
 	if (!_screenshot_post_save_command_arguments.empty())
-	{
-		command_line += ' ';
-		command_line += expand_macro_string(_screenshot_post_save_command_arguments, {
-			{ "AppName", g_target_executable_path.stem().u8string() },
+    {
+        command_line += ' ';
+        command_line += expand_macro_string(_screenshot_post_save_command_arguments, {
+            { "AppName", g_target_executable_path.stem().u8string() },
+            {"BeforeAfter", postfix},
 #if RESHADE_FX
-			{ "PresetName",  _current_preset_path.stem().u8string() },
+            { "PresetName",  _current_preset_path.stem().u8string() },
 #endif
-			{ "TargetPath", screenshot_path.u8string() },
-			{ "TargetDir", screenshot_path.parent_path().u8string() },
-			{ "TargetFileName", screenshot_path.filename().u8string() },
-			{ "TargetExt", screenshot_path.extension().u8string() },
-			{ "TargetName", screenshot_path.stem().u8string() },
-			{ "Count", std::to_string(screenshot_count) }
-		});
-	}
+            { "TargetPath", screenshot_path.u8string() },
+            { "TargetDir", screenshot_path.parent_path().u8string() },
+            { "TargetFileName", screenshot_path.filename().u8string() },
+            { "TargetExt", screenshot_path.extension().u8string() },
+            { "TargetName", screenshot_path.stem().u8string() },
+            { "Count", std::to_string(screenshot_count) }
+        });
+    }
 
 	if (!utils::execute_command(command_line, g_reshade_base_path / _screenshot_post_save_command_working_directory, _screenshot_post_save_command_hide_window))
 	{

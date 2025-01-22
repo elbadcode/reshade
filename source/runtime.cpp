@@ -189,7 +189,7 @@ reshade::runtime::runtime(api::swapchain *swapchain, api::command_queue *graphic
 #endif
 	_config_path(config_path),
 	_screenshot_path(L".\\"),
-	_screenshot_name("%AppName% %Date% %Time%_%TimeMS%"), // Use a timestamp down to the millisecond because users may request more than one screenshot per-second
+	_screenshot_name("%AppName% \\ %Date% %Time%_%TimeMS%"), // Use a timestamp down to the millisecond because users may request more than one screenshot per-second
 	_screenshot_post_save_command_arguments("\"%TargetPath%\""),
 	_screenshot_post_save_command_working_directory(L".\\")
 {
@@ -582,9 +582,6 @@ void reshade::runtime::on_reset()
 	_queue_sync_fence = {};
 
 	_width = _height = 0;
-	_back_buffer_format = api::format::unknown;
-	_back_buffer_samples = 1;
-	_back_buffer_color_space = api::color_space::unknown;
 
 #if RESHADE_GUI
 	if (_is_vr)
@@ -662,7 +659,7 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 	update_effects();
 
 	if (_should_save_screenshot && _screenshot_save_before && _effects_enabled && !_effects_rendered_this_frame)
-		save_screenshot(" original");
+		save_screenshot("Before");
 
 	if (_back_buffer_resolved != 0)
 	{
@@ -676,8 +673,9 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 	}
 #endif
 
-	if (_should_save_screenshot)
-		save_screenshot();
+	  if (_should_save_screenshot)
+          save_screenshot(_screenshot_save_before ? "After" : "");
+
 
 	_frame_count++;
 	const auto current_time = std::chrono::high_resolution_clock::now();
@@ -695,7 +693,7 @@ void reshade::runtime::on_present(api::command_queue *present_queue)
 		|| (_preview_texture != 0 && _effects_enabled)
 #endif
 		))
-		save_screenshot(" overlay");
+		save_screenshot("Overlay");
 #endif
 
 	// All screenshots were created at this point, so reset request
@@ -1455,6 +1453,86 @@ bool reshade::runtime::switch_to_next_preset(std::filesystem::path filter_path, 
 	return true;
 }
 
+// naive implementation attempted. This did not update the font correctly. I think if desired the best route is probably
+// to just pack every viable font into the atlas. However I was trying this as a file io version so I could reuse the code for sfx as well
+//bool reshade::runtime::switch_to_next_font(std::filesystem::path filter_path, bool reversed)
+//{
+//
+//  std::error_code ec; // This is here to ignore file system errors below
+//  std::filesystem::path filter_text;
+//
+//  resolve_path(filter_path, ec);
+//
+//  if (const std::filesystem::file_type file_type =
+//          std::filesystem::status(filter_path, ec).type();
+//      file_type != std::filesystem::file_type::directory) {
+//    if (file_type == std::filesystem::file_type::not_found) {
+//      filter_text = filter_path.filename();
+//      if (!filter_text.empty())
+//        filter_path = filter_path.parent_path();
+//    }
+//
+//    size_t current_font_index = std::numeric_limits<size_t>::max();
+//    std::vector<std::filesystem::path> font_paths;
+//int font_count;
+//
+//    for (std::filesystem::path font_path : std::filesystem::directory_iterator(
+//             filter_path,
+//             std::filesystem::directory_options::skip_permission_denied, ec)) {
+//      // Skip anything that is not a valid font... this won't be perfect but I'm
+//      // not actually sure yet if there is a valid way to just test a font
+//      // besides try catch realistically its the users fault if they have a
+//      // broken font but I'll check imgui docs once I have this working
+//      if (!(font_path.extension() == L".ttf" ||
+//            font_path.extension() == L".otf"))
+//        continue;
+//      else {
+//
+//}
+//      // Keep track of the index of the current font  in the list of found font
+//      if (std::filesystem::equivalent(font_path, _font_path, ec)) {
+//        current_font_index = font_paths.size();
+//        font_paths.push_back(std::move(font_path));
+//        continue;
+//      }
+//
+//      const std::wstring font_name = font_path.stem();
+//      // Only add those files that are matching the filter text
+//      if (filter_text.empty() ||
+//          std::search(font_name.cbegin(), font_name.cend(),
+//                      filter_text.native().begin(), filter_text.native().end(),
+//                      [](auto c1, auto c2) {
+//                        return std::towlower(c1) == std::towlower(c2);
+//                      }) != font_name.cend())
+//        font_paths.push_back(std::move(font_path));
+//    }
+//
+//    if (font_paths.empty())
+//      return false; // No valid font files were found, so nothing more to do
+//
+//    if (current_font_index == std::numeric_limits<size_t>::max()) {
+//      // Current font was not in the filter path, so just use the first or
+//      // last file
+//      if (reversed)
+//        _font_path = font_paths.back();
+//      else
+//        _font_path = font_paths.front();
+//    } else {
+//      // Current font was found in the filter path, so use the file before or
+//      // after it
+//      if (auto it = std::next(font_paths.begin(), current_font_index); reversed)
+//        _font_path = (it == font_paths.begin()) ? font_paths.back() : *(--it);
+//      else
+//        _font_path =
+//            (it == std::prev(font_paths.end())) ? font_paths.front() : *(++it);
+//    }
+//    build_font_atlas();
+//    return true;
+//  }
+//}
+
+
+
 bool reshade::runtime::load_effect(const std::filesystem::path &source_file, const ini_file &preset, size_t effect_index, size_t permutation_index, bool force_load, bool preprocess_required)
 {
 	const std::chrono::high_resolution_clock::time_point time_load_started = std::chrono::high_resolution_clock::now();
@@ -1554,7 +1632,8 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		effect = {};
 		effect.source_file = source_file;
 		effect.source_hash = source_hash;
-		effect.addon = source_file.extension() == L".addonfx";
+
+		effect.is_addonfx = source_file.extension() == L".addonfx";
 	}
 
 	if (_effect_load_skipping && !force_load)
@@ -1581,15 +1660,14 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		effect.permutations.resize(permutation_index + 1);
 	effect::permutation &permutation = effect.permutations[permutation_index];
 
-	bool preprocessed = effect.preprocessed && permutation_index == 0;
-	bool compiled = effect.compiled && permutation_index == 0;
-	bool source_cached = false;
 	bool skip_optimization = false;
 	std::string code_preamble;
-	std::string source;
 	std::string errors;
 
-	if (!preprocessed && (preprocess_required || (source_cached = load_effect_cache(source_file.stem().u8string() + '-' + std::to_string(_renderer_id) + '-' + std::to_string(source_hash), "i", source)) == false))
+	bool source_cached = false;
+	std::string source;
+	if ((!effect.preprocessed || permutation_index != 0) &&
+		(preprocess_required || (source_cached = load_effect_cache(source_file.stem().u8string() + '-' + std::to_string(_renderer_id) + '-' + std::to_string(source_hash), "i", source)) == false))
 	{
 		reshadefx::preprocessor pp;
 		pp.add_macro_definition("__RESHADE__", std::to_string(VERSION_MAJOR * 10000 + VERSION_MINOR * 100 + VERSION_REVISION));
@@ -1614,7 +1692,6 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 
 			pp.add_macro_definition(definition.first, definition.second.empty() ? "1" : definition.second);
 		}
-		preprocessor_definitions.clear(); // Clear before reusing for used preprocessor definitions below
 
 		for (const std::filesystem::path &include_path : include_paths)
 			pp.add_include_path(include_path);
@@ -1631,12 +1708,12 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 			"#define tex2Dgather3 tex2DgatherA\n");
 
 		// Load and preprocess the source file
-		preprocessed = pp.append_file(source_file);
+		effect.preprocessed = pp.append_file(source_file);
 
 		// Append preprocessor errors to the error list
 		errors += pp.errors();
 
-		if (preprocessed)
+		if (effect.preprocessed)
 		{
 			source = pp.output();
 
@@ -1656,6 +1733,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 			}
 
 			// Keep track of used preprocessor definitions (so they can be displayed in the overlay)
+			effect.definitions.clear();
 			for (const std::pair<std::string, std::string> &definition : pp.used_macro_definitions())
 			{
 				if (definition.first.size() < 8 ||
@@ -1665,7 +1743,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 					definition.first.find("INCLUDE_") != std::string::npos)
 					continue;
 
-				preprocessor_definitions.emplace_back(definition.first, trim(definition.second));
+				effect.definitions.emplace_back(definition.first, trim(definition.second));
 
 				// Write used preprocessor definitions to the cached source
 				source = "// " + definition.first + '=' + definition.second + '\n' + source;
@@ -1678,18 +1756,13 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 				source_cached = save_effect_cache(source_file.stem().u8string() + '-' + std::to_string(_renderer_id) + '-' + std::to_string(source_hash), "i", source);
 		}
 
-		if (permutation_index == 0)
-		{
-			effect.definitions = std::move(preprocessor_definitions);
-
-			// Keep track of included files
-			effect.included_files = pp.included_files();
-			std::sort(effect.included_files.begin(), effect.included_files.end()); // Sort file names alphabetically
-		}
+		// Keep track of included files
+		effect.included_files = pp.included_files();
+		std::sort(effect.included_files.begin(), effect.included_files.end()); // Sort file names alphabetically
 	}
 	else
 	{
-		if (permutation_index == 0 && !source.empty())
+		if (!source.empty())
 		{
 			effect.definitions.clear();
 
@@ -1719,7 +1792,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 	}
 
 	std::unique_ptr<reshadefx::codegen> codegen;
-	if (!compiled && !source.empty())
+	if ((!effect.compiled || permutation_index != 0) && !source.empty() || permutation.assembly.empty())
 	{
 		unsigned shader_model;
 		if (_renderer_id == 0x9000)
@@ -1743,7 +1816,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		reshadefx::parser parser;
 
 		// Compile the pre-processed source code (try the compile even if the preprocessor step failed to get additional error information)
-		compiled = parser.parse(std::move(source), codegen.get());
+		effect.compiled = parser.parse(std::move(source), codegen.get());
 
 		// Append parser errors to the error list
 		errors += parser.errors();
@@ -1753,7 +1826,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		if (_device->get_api() != api::device_api::vulkan)
 			permutation.generated_code = codegen->finalize_code();
 
-		if (compiled)
+		if (effect.compiled)
 		{
 			if (permutation_index == 0)
 			{
@@ -1814,7 +1887,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 					permutation.module.total_uniform_size != effect.permutations[0].module.total_uniform_size)
 				{
 					errors += "error: effect permutation defines different uniform variables\n";
-					compiled = false;
+					effect.compiled = false;
 				}
 			}
 
@@ -1881,7 +1954,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 				}
 			}
 		}
-		else if (!preprocessed)
+		else if (!effect.preprocessed)
 		{
 			assert(!preprocess_required);
 
@@ -1889,7 +1962,10 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		}
 	}
 
-	if ( compiled && (preprocessed || source_cached))
+	if (!errors.empty())
+		effect.errors = std::move(errors);
+
+	if (effect.compiled && (effect.preprocessed || source_cached))
 	{
 		if (permutation.assembly.empty())
 		{
@@ -1898,8 +1974,8 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 			{
 				if (entry_point.second == reshadefx::shader_type::compute && !_device->check_capability(api::device_caps::compute_shader))
 				{
-					errors += "error: " + entry_point.first + ": compute shaders are not supported in D3D9/D3D10\n";
-					compiled = false;
+					effect.errors += "error: " + entry_point.first + ": compute shaders are not supported in D3D9/D3D10\n";
+					effect.compiled = false;
 					break;
 				}
 
@@ -2041,16 +2117,16 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 						{
 							// Add a prefix with the offending entry point name for generic error messages like an out of memory notification
 							if (d3d_errors_string.find("error") == std::string::npos)
-								errors += "error: " + entry_point.first + ": ";
+								effect.errors += "error: " + entry_point.first + ": ";
 
-							errors += d3d_errors_string;
-							compiled = false;
+							effect.errors += d3d_errors_string;
+							effect.compiled = false;
 							break;
 						}
 						else
 						{
 							// Append warnings
-							errors += d3d_errors_string;
+							effect.errors += d3d_errors_string;
 						}
 
 						cso.resize(d3d_compiled->GetBufferSize());
@@ -2093,8 +2169,8 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 
 			if (!new_texture.semantic.empty() && (new_texture.render_target || new_texture.storage_access))
 			{
-				errors += "error: " + new_texture.unique_name + ": texture with a semantic used as a render target or storage\n";
-				compiled = false;
+				effect.errors += "error: " + new_texture.unique_name + ": texture with a semantic used as a render target or storage\n";
+				effect.compiled = false;
 				break;
 			}
 
@@ -2108,24 +2184,24 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 				// Cannot share texture if this is a normal one, but the existing one is a reference and vice versa
 				if (new_texture.semantic != existing_texture->semantic)
 				{
-					errors += "error: " + new_texture.unique_name + ": another effect (";
-					errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
-					errors += ") already created a texture with the same name but different semantic\n";
-					compiled = false;
+					effect.errors += "error: " + new_texture.unique_name + ": another effect (";
+					effect.errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
+					effect.errors += ") already created a texture with the same name but different semantic\n";
+					effect.compiled = false;
 					break;
 				}
 
 				if (new_texture.semantic.empty() && !existing_texture->matches_description(new_texture))
 				{
-					errors += "warning: " + new_texture.unique_name + ": another effect (";
-					errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
-					errors += ") already created a texture with the same name but different dimensions\n";
+					effect.errors += "warning: " + new_texture.unique_name + ": another effect (";
+					effect.errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
+					effect.errors += ") already created a texture with the same name but different dimensions\n";
 				}
 				if (new_texture.semantic.empty() && (existing_texture->annotation_as_string("source") != new_texture.annotation_as_string("source")))
 				{
-					errors += "warning: " + new_texture.unique_name + ": another effect (";
-					errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
-					errors += ") already created a texture with a different image file\n";
+					effect.errors += "warning: " + new_texture.unique_name + ": another effect (";
+					effect.errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
+					effect.errors += ") already created a texture with a different image file\n";
 				}
 
 				if (existing_texture->semantic == "COLOR" && api::format_bit_depth(_effect_permutations[permutation_index].color_format) != 8)
@@ -2134,7 +2210,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 					{
 						if (sampler_info.srgb && sampler_info.texture_name == new_texture.unique_name)
 						{
-							errors += "warning: " + sampler_info.unique_name + ": texture does not support sRGB sampling (back buffer format is not RGBA8)\n";
+							effect.errors += "warning: " + sampler_info.unique_name + ": texture does not support sRGB sampling (back buffer format is not RGBA8)\n";
 						}
 					}
 				}
@@ -2215,28 +2291,22 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 			new_technique.name = tech.name;
 			new_technique.effect_index = effect_index;
 
-			new_technique.annotations = tech.annotations; // Do not 'std::move', since technique may be recreated on a reload that only preprocesses and copy this again
+			new_technique.annotations = std::move(tech.annotations);
 
 			new_technique.hidden = new_technique.annotation_as_int("hidden") != 0;
 			new_technique.enabled_in_screenshot = new_technique.annotation_as_int("enabled_in_screenshot", 0, true) != 0;
 
-			// Make space for all permutations in case this technique only exists in a specific one
-			new_technique.permutations.resize(permutation_index + 1);
-			new_technique.permutations[permutation_index].passes.assign(tech.passes.begin(), tech.passes.end());
+			assert(permutation_index == 0);
+			new_technique.permutations.resize(1);
+			new_technique.permutations[0].passes.assign(tech.passes.begin(), tech.passes.end());
 
-			if (permutation_index == 0 && new_technique.annotation_as_int("enabled"))
+			if (new_technique.annotation_as_int("enabled"))
 				enable_technique(new_technique);
 
 			_techniques.push_back(std::move(new_technique));
 			_technique_sorting.push_back(_techniques.size() - 1);
 		}
 	}
-
-	effect.compiled = compiled;
-	effect.preprocessed = preprocessed;
-
-	if (!errors.empty())
-		effect.errors = std::move(errors);
 
 	const std::chrono::high_resolution_clock::time_point time_load_finished = std::chrono::high_resolution_clock::now();
 
@@ -2245,7 +2315,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 	else
 		_reload_remaining_effects = 0; // Force effect initialization in 'update_effects'
 
-	if ( compiled && (preprocessed || source_cached))
+	if ( effect.compiled && (effect.preprocessed || source_cached))
 	{
 		if (effect.errors.empty())
 			log::message(log::level::info, "Successfully compiled '%s'%s in %f s.", source_file.u8string().c_str(), permutation_index == 0 ? "" : " permutation", std::chrono::duration_cast<std::chrono::milliseconds>(time_load_finished - time_load_started).count() * 1e-3f);
@@ -2267,7 +2337,6 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 bool reshade::runtime::create_effect(size_t effect_index, size_t permutation_index)
 {
 	effect &effect = _effects[effect_index];
-
 	if (!effect.compiled)
 		return false;
 
@@ -2475,14 +2544,13 @@ bool reshade::runtime::create_effect(size_t effect_index, size_t permutation_ind
 	{
 		technique &tech = _techniques[tech_index];
 
-		if (tech.effect_index != effect_index || permutation_index >= tech.permutations.size())
+		if (tech.effect_index != effect_index)
 			continue;
 
 		assert(!tech.permutations[permutation_index].created);
 
 		// Offset index so that a query exists for each command frame and two subsequent ones are used for before/after stamps
-		if (permutation_index == 0)
-			tech.query_base_index = static_cast<uint32_t>(tech_index_in_effect * 2 * 4);
+		tech.query_base_index = static_cast<uint32_t>(tech_index_in_effect * 2 * 4);
 		++tech_index_in_effect;
 
 		for (size_t pass_index = 0; pass_index < tech.permutations[permutation_index].passes.size(); ++pass_index, ++pass_index_in_effect)
@@ -2895,8 +2963,8 @@ void reshade::runtime::destroy_effect(size_t effect_index)
 		tech.permutations.clear();
 	}
 
-	effect &effect = _effects[effect_index];
-	{
+	{	effect &effect = _effects[effect_index];
+
 		_device->destroy_resource(effect.cb);
 		effect.cb = {};
 
@@ -2921,7 +2989,7 @@ void reshade::runtime::destroy_effect(size_t effect_index)
 	const std::unique_lock<std::shared_mutex> lock(_reload_mutex);
 
 	// No techniques from this effect are rendering anymore
-	effect.rendering = 0;
+	_effects[effect_index].rendering = 0;
 
 	// Destroy textures belonging to this effect
 	_textures.erase(std::remove_if(_textures.begin(), _textures.end(),
@@ -3214,12 +3282,6 @@ bool reshade::runtime::create_texture(texture &tex)
 		break;
 	case reshadefx::texture_format::rgba16f:
 		format = api::format::r16g16b16a16_float;
-		break;
-	case reshadefx::texture_format::rgba32i:
-		format = api::format::r32g32b32a32_sint;
-		break;
-	case reshadefx::texture_format::rgba32u:
-		format = api::format::r32g32b32a32_uint;
 		break;
 	case reshadefx::texture_format::rgba32f:
 		format = api::format::r32g32b32a32_float;
@@ -3817,7 +3879,6 @@ void reshade::runtime::update_effects()
 	// Pop an effect from the queue
 	const auto [effect_index, permutation_index] = _reload_create_queue.back();
 	_reload_create_queue.pop_back();
-	effect &effect = _effects[effect_index];
 
 	if (!create_effect(effect_index, permutation_index))
 	{
@@ -3832,11 +3893,13 @@ void reshade::runtime::update_effects()
 			if (tech.effect_index == effect_index)
 				disable_technique(tech);
 
-		effect.compiled = false;
+		_effects[effect_index].compiled = false;
 		_last_reload_successful = false;
 	}
 
 #if RESHADE_GUI
+	const effect &effect = _effects[effect_index];
+
 	// Update assembly in all code editors after a reload
 	for (editor_instance &instance : _editors)
 	{
@@ -3865,7 +3928,7 @@ void reshade::runtime::render_effects(api::command_list *cmd_list, api::resource
 	// Nothing to do here if effects are still loading or disabled globally
 	if (is_loading() || _techniques.empty())
 		return;
-	if (!_effects_enabled && std::all_of(_effects.cbegin(), _effects.cend(), [](const effect &effect) { return !effect.addon; }))
+	if (!_effects_enabled && std::all_of(_effects.cbegin(), _effects.cend(), [](const effect &effect) { return !effect.is_addonfx; }))
 		return;
 
 	// Lock input so it cannot be modified by other threads while we are reading it here
@@ -3880,7 +3943,7 @@ void reshade::runtime::render_effects(api::command_list *cmd_list, api::resource
 	// Update special uniform variables
 	for (effect &effect : _effects)
 	{
-		if (!effect.rendering || (!_effects_enabled && !effect.addon))
+		if (!effect.rendering || (!_effects_enabled && !effect.is_addonfx))
 			continue;
 
 		for (uniform &variable : effect.uniforms)
@@ -4073,9 +4136,11 @@ void reshade::runtime::render_effects(api::command_list *cmd_list, api::resource
 
 	const api::resource back_buffer_resource = _device->get_resource_from_view(rtv);
 
-	size_t permutation_index = 0;
 #if RESHADE_ADDON
-	if (!_is_in_present_call)
+	size_t permutation_index = 0;
+	if (!_is_in_present_call ||
+		// Also use effect permutation in case color space was changed via 'effect_runtime::set_color_space'
+		_back_buffer_color_space != _effect_permutations[0].color_space)
 	{
 		const api::resource_desc back_buffer_desc = _device->get_resource_desc(back_buffer_resource);
 		if (back_buffer_desc.texture.samples > 1)
@@ -4087,7 +4152,7 @@ void reshade::runtime::render_effects(api::command_list *cmd_list, api::resource
 
 		// Ensure dimensions and format of the effect color resource matches that of the input back buffer resource (so that the copy to the effect color resource succeeds)
 		// Changing dimensions or format can cause effects to be reloaded, in which case need to wait for that to finish before rendering
-		permutation_index = add_effect_permutation(back_buffer_desc.texture.width, back_buffer_desc.texture.height, color_format, _effect_permutations[0].stencil_format, api::color_space::unknown);
+		permutation_index = add_effect_permutation(back_buffer_desc.texture.width, back_buffer_desc.texture.height, color_format, _effect_permutations[0].stencil_format, _back_buffer_color_space);
 		if (permutation_index == std::numeric_limits<size_t>::max())
 			return;
 	}
@@ -4106,12 +4171,11 @@ void reshade::runtime::render_effects(api::command_list *cmd_list, api::resource
 	for (size_t technique_index : _technique_sorting)
 	{
 		technique &tech = _techniques[technique_index];
-		const effect &effect = _effects[tech.effect_index];
 
-		if (!tech.enabled || (_should_save_screenshot && !tech.enabled_in_screenshot) || (!_effects_enabled && !effect.addon))
+		if (!tech.enabled || (_should_save_screenshot && !tech.enabled_in_screenshot) || (!_effects_enabled && !_effects[tech.effect_index].is_addonfx))
 			continue;
 
-		if (permutation_index >= tech.permutations.size() || (!tech.permutations[permutation_index].created && effect.permutations[permutation_index].assembly.empty()))
+		if (permutation_index >= tech.permutations.size() || (!tech.permutations[permutation_index].created && _effects[tech.effect_index].permutations[permutation_index].assembly.empty()))
 		{
 			if (std::find(_reload_required_effects.begin(), _reload_required_effects.end(), std::make_pair(tech.effect_index, permutation_index)) == _reload_required_effects.end())
 				_reload_required_effects.emplace_back(tech.effect_index, permutation_index);
@@ -4145,7 +4209,7 @@ void reshade::runtime::render_technique(technique &tech, api::command_list *cmd_
 	const effect::permutation &permutation = effect.permutations[permutation_index];
 
 #if RESHADE_GUI
-	if (_gather_gpu_statistics && _timestamp_frequency != 0 && effect.query_heap != 0 && permutation_index == 0)
+	if (_gather_gpu_statistics && _timestamp_frequency != 0 && effect.query_heap != 0)
 	{
 		// Evaluate queries from oldest frame in queue
 		if (uint64_t timestamps[2];
@@ -4320,8 +4384,7 @@ void reshade::runtime::render_technique(technique &tech, api::command_list *cmd_
 
 					semantic_index++;
 
-					if (const auto it = _texture_semantic_bindings.find(tex.semantic);
-						it != _texture_semantic_bindings.end())
+					if (const auto it = _texture_semantic_bindings.find(tex.semantic); it != _texture_semantic_bindings.end())
 					{
 						const api::resource_desc desc = _device->get_resource_desc(_device->get_resource_from_view(it->second.first));
 
@@ -4362,7 +4425,7 @@ void reshade::runtime::render_technique(technique &tech, api::command_list *cmd_
 
 	tech.average_cpu_duration.append(std::chrono::duration_cast<std::chrono::nanoseconds>(time_technique_finished - time_technique_started).count());
 
-	if (_gather_gpu_statistics && _timestamp_frequency != 0 && effect.query_heap != 0 && permutation_index == 0)
+	if (_gather_gpu_statistics && _timestamp_frequency != 0 && effect.query_heap != 0)
 		cmd_list->end_query(effect.query_heap, api::query_type::timestamp, tech.query_base_index + (_frame_count % 4) * 2 + 1);
 #endif
 
@@ -4387,10 +4450,7 @@ void reshade::runtime::save_texture(const texture &tex)
 	std::string filename = tex.unique_name;
 	filename += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
 
-	const std::filesystem::path screenshot_path =
-		_screenshot_path.native().find(L'%') != std::wstring::npos ?
-		g_reshade_base_path / std::filesystem::u8path(filename) :
-		g_reshade_base_path / _screenshot_path / std::filesystem::u8path(filename);
+	const std::filesystem::path screenshot_path = g_reshade_base_path / _screenshot_path / std::filesystem::u8path(filename);
 
 	_last_screenshot_save_successful = true;
 
@@ -4777,290 +4837,340 @@ template <> void reshade::runtime::set_uniform_value<uint32_t>(uniform &variable
 
 static std::string expand_macro_string(const std::string &input, std::vector<std::pair<std::string, std::string>> macros)
 {
-	const auto now = std::chrono::system_clock::now();
-	const auto now_seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
+    const auto now = std::chrono::system_clock::now();
+    const auto now_seconds = std::chrono::time_point_cast<std::chrono::seconds>(now);
 
-	char timestamp[21];
-	const std::time_t t = std::chrono::system_clock::to_time_t(now_seconds);
-	struct tm tm; localtime_s(&tm, &t);
+    char timestamp[21];
+    const std::time_t t = std::chrono::system_clock::to_time_t(now_seconds);
+    struct tm tm; localtime_s(&tm, &t);
 
-	std::snprintf(timestamp, std::size(timestamp), "%.4d-%.2d-%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-	macros.emplace_back("Date", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.4d", tm.tm_year + 1900);
-	macros.emplace_back("DateYear", timestamp);
-	macros.emplace_back("Year", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mon + 1);
-	macros.emplace_back("DateMonth", timestamp);
-	macros.emplace_back("Month", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mday);
-	macros.emplace_back("DateDay", timestamp);
-	macros.emplace_back("Day", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.4d-%.2d-%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+    macros.emplace_back("Date", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.4d", tm.tm_year + 1900);
+    macros.emplace_back("DateYear", timestamp);
+    macros.emplace_back("Year", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mon + 1);
+    macros.emplace_back("DateMonth", timestamp);
+    macros.emplace_back("Month", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_mday);
+    macros.emplace_back("DateDay", timestamp);
+    macros.emplace_back("Day", timestamp);
 
-	std::snprintf(timestamp, std::size(timestamp), "%.2d-%.2d-%.2d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-	macros.emplace_back("Time", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_hour);
-	macros.emplace_back("TimeHour", timestamp);
-	macros.emplace_back("Hour", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_min);
-	macros.emplace_back("TimeMinute", timestamp);
-	macros.emplace_back("Minute", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_sec);
-	macros.emplace_back("TimeSecond", timestamp);
-	macros.emplace_back("Second", timestamp);
-	std::snprintf(timestamp, std::size(timestamp), "%.3lld", std::chrono::duration_cast<std::chrono::milliseconds>(now - now_seconds).count());
-	macros.emplace_back("TimeMillisecond", timestamp);
-	macros.emplace_back("Millisecond", timestamp);
-	macros.emplace_back("TimeMS", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d-%.2d-%.2d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    macros.emplace_back("Time", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_hour);
+    macros.emplace_back("TimeHour", timestamp);
+    macros.emplace_back("Hour", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_min);
+    macros.emplace_back("TimeMinute", timestamp);
+    macros.emplace_back("Minute", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.2d", tm.tm_sec);
+    macros.emplace_back("TimeSecond", timestamp);
+    macros.emplace_back("Second", timestamp);
+    std::snprintf(timestamp, std::size(timestamp), "%.3lld", std::chrono::duration_cast<std::chrono::milliseconds>(now - now_seconds).count());
+    macros.emplace_back("TimeMillisecond", timestamp);
+    macros.emplace_back("Millisecond", timestamp);
+    macros.emplace_back("TimeMS", timestamp);
 
-	std::string result;
+  std::string result;
+      for (size_t offset = 0, macro_beg, macro_end; offset < input.size(); offset = macro_end + 1)
+    {
+        macro_beg = input.find('%', offset);
+        macro_end = input.find('%', macro_beg + 1);
 
-	for (size_t offset = 0, macro_beg, macro_end; offset < input.size(); offset = macro_end + 1)
-	{
-		macro_beg = input.find('%', offset);
-		macro_end = input.find('%', macro_beg + 1);
+        if (macro_beg == std::string::npos || macro_end == std::string::npos)
+        {
+            result += input.substr(offset);
+            break;
+        }
+        else
+        {
+            result += input.substr(offset, macro_beg - offset);
 
-		if (macro_beg == std::string::npos || macro_end == std::string::npos)
-		{
-			result += input.substr(offset);
-			break;
-		}
-		else
-		{
-			result += input.substr(offset, macro_beg - offset);
+            if (macro_end == macro_beg + 1) // Handle case of %% to escape percentage symbol
+            {
+                result += '%';
+                continue;
+            }
+        }
 
-			if (macro_end == macro_beg + 1) // Handle case of %% to escape percentage symbol
-			{
-				result += '%';
-				continue;
-			}
-		}
+        std::string_view replacing(input);
+        replacing = replacing.substr(macro_beg + 1, macro_end - (macro_beg + 1));
+        size_t colon_pos = replacing.find(':');
 
-		std::string_view replacing(input);
-		replacing = replacing.substr(macro_beg + 1, macro_end - (macro_beg + 1));
-		size_t colon_pos = replacing.find(':');
+        std::string name;
+        if (colon_pos == std::string_view::npos)
+            name = replacing;
+        else
+            name = replacing.substr(0, colon_pos);
 
-		std::string name;
-		if (colon_pos == std::string_view::npos)
-			name = replacing;
-		else
-			name = replacing.substr(0, colon_pos);
+        std::string value;
+        for (const std::pair<std::string, std::string> &macro : macros)
+        {
+            if (_stricmp(name.c_str(), macro.first.c_str()) == 0)
+            {
+                value = macro.second;
+                break;
+            }
+        }
 
-		std::string value;
-		for (const std::pair<std::string, std::string> &macro : macros)
-		{
-			if (_stricmp(name.c_str(), macro.first.c_str()) == 0)
-			{
-				value = macro.second;
-				break;
-			}
-		}
+        if (colon_pos == std::string_view::npos)
+        {
+            result += value;
+        }
+        else
+        {
+            std::string_view param = replacing.substr(colon_pos + 1);
 
-		if (colon_pos == std::string_view::npos)
-		{
-			result += value;
-		}
-		else
-		{
-			std::string_view param = replacing.substr(colon_pos + 1);
+            if (const size_t insert_pos = param.find('$');
+                insert_pos != std::string_view::npos)
+            {
+                result += param.substr(0, insert_pos);
+                result += value;
+                result += param.substr(insert_pos + 1);
+            }
+            else
+            {
+                result += param;
+            }
+        }
+    }
 
-			if (const size_t insert_pos = param.find('$');
-				insert_pos != std::string_view::npos)
-			{
-				result += param.substr(0, insert_pos);
-				result += value;
-				result += param.substr(insert_pos + 1);
-			}
-			else
-			{
-				result += param;
-			}
-		}
-	}
+    return result;
 
-	return result;
 }
 
-void reshade::runtime::save_screenshot(const std::string_view postfix)
+
+
+void reshade::runtime::save_screenshot(const std::string_view postfix) {
+  const unsigned int screenshot_count = _screenshot_count;
+
+/* previous implementation with both path and name being expanded benefitted from a local vector to avoid
+    redundancy. I also had it instantiate without Count which was emplaced back after expanding the path string
+	to prevent the possibility of adding Count to your path, thus creating a new directory per screenshot
+    Technically possible again. Should we add a check to ignore Count if there are any directory separators following it?
+	Or do we trust that the user is smart enough not to do that (doubt)?
+*/
+  std::vector<std::pair<std::string, std::string>> macros = {
+      {"BeforeAfter", std::string(postfix)},
+      {"AppName", g_target_executable_path.stem().u8string()},
+#if RESHADE_FX
+      {"PresetName", _current_preset_path.stem().u8string()},
+      {"Count", std::to_string(screenshot_count)}
+#endif
+  };
+
+  std::string expanded_screenshot_name = expand_macro_string(_screenshot_name, macros);
+
+  // Trim leading and trailing whitespaces from the name.
+// Was more of an issue with old split implementation but it shouldn't hurt to leave
+  expanded_screenshot_name.erase(0, expanded_screenshot_name.find_first_not_of(" \t\n\r\f\v"));
+  expanded_screenshot_name.erase(expanded_screenshot_name.find_last_not_of(" \t\n\r\f\v") + 1);
+
+
+  // If save before/after option is checked but not used as a macro, append it to the filename (old behavior)
+  bool before_after_used = (expanded_screenshot_name.find(std::string(postfix)) != std::string::npos);
+  if (_screenshot_save_before && !before_after_used) {
+    expanded_screenshot_name += "_" + std::string(postfix);
+  }
+
+  expanded_screenshot_name += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
+
+  // Normalize path by removing duplicate slashes, handling mixed slashes
+  std::string normalized_name = expanded_screenshot_name;
+  
+  // Normalize slashes
+  std::replace(normalized_name.begin(), normalized_name.end(), '/', '\\');
+  while (normalized_name.find("\\\\") != std::string::npos) {
+    normalized_name.replace(normalized_name.find("\\\\"), 2, "\\");
+  }
+
+  std::filesystem::path expanded_path = std::filesystem::u8path(normalized_name);
+
+
+const std::filesystem::path screenshot_path = g_reshade_base_path / expanded_path;
+
+log::message(log::level::info, "Saving screenshot to '%s'.", screenshot_path.u8string().c_str());
+
+_last_screenshot_save_successful = true;
+
+if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * 4);
+    capture_screenshot(pixels.data()))
 {
-	const unsigned int screenshot_count = _screenshot_count;
-
-	std::string screenshot_name = _screenshot_name;
-	screenshot_name += postfix;
-	screenshot_name += (_screenshot_format == 0 ? ".bmp" : _screenshot_format == 1 ? ".png" : ".jpg");
-
-	const std::filesystem::path screenshot_path =
-		g_reshade_base_path / std::filesystem::u8path(
-			expand_macro_string((_screenshot_path / std::filesystem::u8path(screenshot_name)).u8string(), {
-				{ "AppName", g_target_executable_path.stem().u8string() },
 #if RESHADE_FX
-				{ "PresetName",  _current_preset_path.stem().u8string() },
-#endif
-				{ "Count", std::to_string(screenshot_count) }
-			}));
-
-	log::message(log::level::info, "Saving screenshot to '%s'.", screenshot_path.u8string().c_str());
-
-	_last_screenshot_save_successful = true;
-
-	size_t bytes_per_pixel =
-		_back_buffer_format == api::format::r16g16b16a16_float ? 8 : 4;
-
-	if (std::vector<uint8_t> pixels(static_cast<size_t>(_width) * static_cast<size_t>(_height) * bytes_per_pixel);
-		capture_screenshot(pixels.data()))
-	{
-#if RESHADE_FX
-		const bool include_preset = _screenshot_include_preset && postfix.empty() && ini_file::flush_cache(_current_preset_path);
+// Save the preset alongside the After screenshot to preserve expected behavior
+// If a user can't find it that's probably their own fault... Could instead or as well write to base screenshot dir
+// WIP addon will introduce easy way to interact with screenshot presets so if people use that it actually won't matter where its saved
+  const bool include_preset =
+      _screenshot_include_preset && postfix != "Before" && postfix != "Overlay" &&
+              ini_file::flush_cache(_current_preset_path);
 #else
-		const bool include_preset = false;
+        const bool include_preset = false;
 #endif
-		// Play screenshot sound
-		if (!_screenshot_sound_path.empty())
-			utils::play_sound_async(g_reshade_base_path / _screenshot_sound_path);
+        // Play screenshot sound
+        if (!_screenshot_sound_path.empty() )
+            utils::play_sound_async(g_reshade_base_path / _screenshot_sound_path);
 
-		_worker_threads.emplace_back([this, screenshot_count, screenshot_path, pixels = std::move(pixels), include_preset]() mutable {
-			auto screenshot_format = _screenshot_format;
+        _worker_threads.emplace_back([this, screenshot_count, screenshot_path, postfix, pixels = std::move(pixels), include_preset]() mutable {
+            auto screenshot_format = _screenshot_format;
 
-			// Use PNG for HDR; no tonemapping is implemented, so this is the only way to capture a screenshot in HDR.
-			if (((_back_buffer_format == api::format::r10g10b10a2_unorm  ||
-			      _back_buffer_format == api::format::b10g10r10a2_unorm) && _back_buffer_color_space == api::color_space::hdr10_st2084) ||
-				 (_back_buffer_format == api::format::r16g16b16a16_float && _back_buffer_color_space == api::color_space::extended_srgb_linear))
-				screenshot_format = 3;
+            // Use PNG for HDR; no tonemapping is implemented, so this is the only way to capture a screenshot in HDR.
+            if (((_back_buffer_format == api::format::r10g10b10a2_unorm  ||
+                  _back_buffer_format == api::format::b10g10r10a2_unorm) && _back_buffer_color_space == api::color_space::hdr10_st2084) ||
+                 (_back_buffer_format == api::format::r16g16b16a16_float && _back_buffer_color_space == api::color_space::extended_srgb_linear))
+                screenshot_format = 3;
+            // Remove alpha channel
+            int comp = 4;
+            if (_screenshot_clear_alpha && screenshot_format != 3)
+            {
+                comp = 3;
+                for (size_t i = 0; i < static_cast<size_t>(_width) * static_cast<size_t>(_height); ++i)
+                    *reinterpret_cast<uint32_t *>(pixels.data() + 3 * i) = *reinterpret_cast<const uint32_t *>(pixels.data() + 4 * i);
+            }
 
-			// Remove alpha channel
-			int comp = 4;
-			if (_screenshot_clear_alpha && screenshot_format != 3)
-			{
-				comp = 3;
-				for (size_t i = 0; i < static_cast<size_t>(_width) * static_cast<size_t>(_height); ++i)
-					*reinterpret_cast<uint32_t *>(pixels.data() + 3 * i) = *reinterpret_cast<const uint32_t *>(pixels.data() + 4 * i);
-			}
+            // Create screenshot directory if it does not exist
+            std::error_code ec;
+            _screenshot_directory_creation_successful = true;
+            if (!std::filesystem::exists(screenshot_path.parent_path(), ec))
+                if (!(_screenshot_directory_creation_successful = std::filesystem::create_directories(screenshot_path.parent_path(), ec)))
+                    log::message(log::level::error, "Failed to create screenshot directory '%s' with error code %d!", screenshot_path.parent_path().u8string().c_str(), ec.value());
 
-			// Create screenshot directory if it does not exist
-			std::error_code ec;
-			_screenshot_directory_creation_successful = true;
-			if (!std::filesystem::exists(screenshot_path.parent_path(), ec))
-				if (!(_screenshot_directory_creation_successful = std::filesystem::create_directories(screenshot_path.parent_path(), ec)))
-					log::message(log::level::error, "Failed to create screenshot directory '%s' with error code %d!", screenshot_path.parent_path().u8string().c_str(), ec.value());
 
-			// Default to a save failure unless it is reported to succeed below
-			bool save_success = false;
+            // Default to a save failure unless it is reported to succeed below
+            bool save_success = false;
 
-			if (FILE *const file = _wfsopen(screenshot_path.c_str(), L"wb", SH_DENYNO))
-			{
-				const auto write_callback = [](void *context, void *data, int size) {
-					fwrite(data, 1, size, static_cast<FILE *>(context));
-				};
+            if (FILE *const file = _wfsopen(screenshot_path.c_str(), L"wb", SH_DENYNO))
+            {
+                const auto write_callback = [](void *context, void *data, int size) {
+                    fwrite(data, 1, size, static_cast<FILE *>(context));
+                };
 
-				switch (screenshot_format)
-				{
-				case 0:
-					save_success = stbi_write_bmp_to_func(write_callback, file, _width, _height, comp, pixels.data()) != 0;
-					break;
-				case 1:
+                switch (screenshot_format)
+                {
+                case 0:
+                    save_success = stbi_write_bmp_to_func(write_callback, file, _width, _height, comp, pixels.data()) != 0;
+                    break;
+                case 1:
 #if 1
-					if (std::vector<uint8_t> encoded_data;
-						fpng::fpng_encode_image_to_memory(pixels.data(), _width, _height, comp, encoded_data))
-						save_success = fwrite(encoded_data.data(), 1, encoded_data.size(), file) == encoded_data.size();
+                    if (std::vector<uint8_t> encoded_data;
+                        fpng::fpng_encode_image_to_memory(pixels.data(), _width, _height, comp, encoded_data))
+                        save_success = fwrite(encoded_data.data(), 1, encoded_data.size(), file) == encoded_data.size();
 #else
-					save_success = stbi_write_png_to_func(write_callback, file, _width, _height, comp, pixels.data(), 0) != 0;
+                    save_success = stbi_write_png_to_func(write_callback, file, _width, _height, comp, pixels.data(), 0) != 0;
 #endif
-					break;
-				case 2:
-					save_success = stbi_write_jpg_to_func(write_callback, file, _width, _height, comp, pixels.data(), _screenshot_jpeg_quality) != 0;
-					break;
-				// Implicit HDR PNG when running in HDR
-				case 3:
-					save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str(), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
-					break;
-				}
+                    break;
+                case 2:
+                    save_success = stbi_write_jpg_to_func(write_callback, file, _width, _height, comp, pixels.data(), _screenshot_jpeg_quality) != 0;
+                    break;
+                // Implicit HDR PNG when running in HDR
+                case 3:
+                    save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str (), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
+                    break;
+                }
 
-				if (ferror(file))
-					save_success = false;
+                if (ferror(file))
+                    save_success = false;
 
-				fclose(file);
-			}
+                fclose(file);
+            }
 
-			if (save_success)
-			{
-				execute_screenshot_post_save_command(screenshot_path, screenshot_count);
+            if (save_success)
+            {
+                // couldn't think of another way to get the postfix to the post save command that doesn't involve some nasty parsing
+                execute_screenshot_post_save_command(screenshot_path, screenshot_count, std::string(postfix));
 
 #if RESHADE_FX
-				if (include_preset)
-				{
-					std::filesystem::path screenshot_preset_path = screenshot_path;
-					screenshot_preset_path.replace_extension(L".ini");
+                if (include_preset)
+                {
+                    // This behavior is unchanged, we just disabled calling it for the before/overlay cases
+					// It might be nice to also add the name of the preset here but that might make my life a bit harder
+                  // with my wip preset gallery addon so I'll hold off on making that PR until after I have the addon working
+                    std::filesystem::path screenshot_preset_path = screenshot_path;
+                    screenshot_preset_path.replace_extension(L".ini");
 
-					// Preset was flushed to disk, so can just copy it over to the new location
-					if (!std::filesystem::copy_file(_current_preset_path, screenshot_preset_path, std::filesystem::copy_options::overwrite_existing, ec))
-						log::message(log::level::error, "Failed to copy preset file for screenshot to '%s' with error code %d!", screenshot_preset_path.u8string().c_str(), ec.value());
-				}
+                    // Preset was flushed to disk, so can just copy it over to the new location
+                    if (!std::filesystem::copy_file(_current_preset_path, screenshot_preset_path, std::filesystem::copy_options::overwrite_existing, ec))
+                        log::message(log::level::error, "Failed to copy preset file for screenshot to '%s' with error code %d!", screenshot_preset_path.u8string().c_str(), ec.value());
+                }
 #endif
 
 #if RESHADE_ADDON
-				invoke_addon_event<addon_event::reshade_screenshot>(this, screenshot_path.u8string().c_str());
+                invoke_addon_event<addon_event::reshade_screenshot>(this, screenshot_path.u8string().c_str());
 #endif
-			}
-			else
-			{
-				log::message(log::level::error, "Failed to write screenshot to '%s'!", screenshot_path.u8string().c_str());
-			}
+            }
+            else
+            {
+                log::message(log::level::error, "Failed to write screenshot to '%s'!", screenshot_path.u8string().c_str());
+            }
 
-			if (_last_screenshot_save_successful)
-			{
-				_last_screenshot_time = std::chrono::high_resolution_clock::now();
-				_last_screenshot_file = screenshot_path;
-				_last_screenshot_save_successful = save_success;
-			}
-		});
-	}
+            if (_last_screenshot_save_successful)
+            {
+                _last_screenshot_time = std::chrono::high_resolution_clock::now();
+                _last_screenshot_file = screenshot_path;
+                _last_screenshot_save_successful = save_success;
+            }
+        });
+    }
 }
-bool reshade::runtime::execute_screenshot_post_save_command(const std::filesystem::path &screenshot_path, unsigned int screenshot_count)
-{
-	if (_screenshot_post_save_command.empty())
-		return false;
 
-	const std::wstring ext = _screenshot_post_save_command.extension().native();
 
-	std::string command_line;
-	if (ext == L".bat" || ext == L".cmd")
-		command_line = "cmd /C call ";
-	else if (ext == L".ps1")
-		command_line = "powershell -File ";
-	else if (ext == L".py")
-		command_line = "python ";
-	else if (ext != L".exe")
-		return false;
+bool reshade::runtime::execute_screenshot_post_save_command(
+    const std::filesystem::path &screenshot_path, unsigned int screenshot_count,
+    std::string postfix) {
+  // Allows for calling python scripts or other runnables a little easier
+  // Not a new security risk since this doesn't actually add a new feature,
+// but imo maybe this feature should be locked to Addon version if not already
+  if (_screenshot_post_save_command.empty() ||
+      (std::set<std::wstring>{L".exe", L".py", L".pyx", L".pyw", L".bat",
+                              L".cmd", L".sh", L".ps1"}
+           .count(_screenshot_post_save_command.extension().wstring()) == 0))
+      return false;
 
-	command_line += '\"';
-	command_line += _screenshot_post_save_command.u8string();
-	command_line += '\"';
+    std::string command_line;
+ if (_screenshot_post_save_command.extension() != L".exe")
+  {
+      // technically not needed if they installed python correctly but if we're gonna handle it we may as well make sure its done right
+      if (_screenshot_post_save_command.extension() == L".py" ||
+          _screenshot_post_save_command.extension() == L".pyw")
+        command_line = "python ";
+      else if (_screenshot_post_save_command.extension() == L".ps1")
+        command_line = "Powershell-File  ";
+      // in truth you could just do this yourself prior to this change but this
+      // makes it a bit more user friendly
+      else
+        command_line = "cmd /C ";
 
-	if (!_screenshot_post_save_command_arguments.empty())
-	{
-		command_line += ' ';
-		command_line += expand_macro_string(_screenshot_post_save_command_arguments, {
-			{ "AppName", g_target_executable_path.stem().u8string() },
+    command_line += '\"';
+    command_line += _screenshot_post_save_command.u8string();
+    command_line += '\"';
+  }
+
+    if (!_screenshot_post_save_command_arguments.empty())
+    {
+        command_line += ' ';
+        command_line += expand_macro_string(_screenshot_post_save_command_arguments, {
+            { "AppName", g_target_executable_path.stem().u8string() },
+            {"BeforeAfter", postfix},
 #if RESHADE_FX
-			{ "PresetName",  _current_preset_path.stem().u8string() },
+            { "PresetName",  _current_preset_path.stem().u8string() },
 #endif
-			{ "TargetPath", screenshot_path.u8string() },
-			{ "TargetDir", screenshot_path.parent_path().u8string() },
-			{ "TargetFileName", screenshot_path.filename().u8string() },
-			{ "TargetExt", screenshot_path.extension().u8string() },
-			{ "TargetName", screenshot_path.stem().u8string() },
-			{ "Count", std::to_string(screenshot_count) }
-		});
-	}
+            { "TargetPath", screenshot_path.u8string() },
+            { "TargetDir", screenshot_path.parent_path().u8string() },
+            { "TargetFileName", screenshot_path.filename().u8string() },
+            { "TargetExt", screenshot_path.extension().u8string() },
+            { "TargetName", screenshot_path.stem().u8string() },
+            { "Count", std::to_string(screenshot_count) }
+        });
+    }
 
-	if (!utils::execute_command(command_line, g_reshade_base_path / _screenshot_post_save_command_working_directory, _screenshot_post_save_command_hide_window))
-	{
-		log::message(log::level::error, "Failed to execute screenshot post-save command!");
-		return false;
-	}
+    if (!utils::execute_command(command_line, g_reshade_base_path / _screenshot_post_save_command_working_directory, _screenshot_post_save_command_hide_window))
+    {
+        log::message(log::level::error, "Failed to execute screenshot post-save command!");
+        return false;
+    }
 
-	return true;
+    return true;
 }
-
 bool reshade::runtime::get_texture_data(api::resource resource, api::resource_usage state, uint8_t *pixels)
 {
 	const api::resource_desc desc = _device->get_resource_desc(resource);

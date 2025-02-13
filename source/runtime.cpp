@@ -1017,7 +1017,6 @@ void reshade::runtime::load_config()
 	config_get("SCREENSHOT", "FileNaming", _screenshot_name);
 	config_get("SCREENSHOT", "JPEGQuality", _screenshot_jpeg_quality);
 	config_get("SCREENSHOT", "HDRBitDepth", _screenshot_hdr_bits);
-	config_get("SCREENSHOT", "CopyToClipboard", _screenshot_clipboard_copy);
 #if RESHADE_FX
 	config_get("SCREENSHOT", "SaveBeforeShot", _screenshot_save_before);
 	config_get("SCREENSHOT", "SavePresetFile", _screenshot_include_preset);
@@ -1087,7 +1086,6 @@ void reshade::runtime::save_config() const
 	config.set("SCREENSHOT", "FileNaming", _screenshot_name);
 	config.set("SCREENSHOT", "JPEGQuality", _screenshot_jpeg_quality);
 	config.set("SCREENSHOT", "HDRBitDepth", _screenshot_hdr_bits);
-	config.set("SCREENSHOT", "CopyToClipboard", _screenshot_clipboard_copy);
 #if RESHADE_FX
 	config.set("SCREENSHOT", "SaveBeforeShot", _screenshot_save_before);
 	config.set("SCREENSHOT", "SavePresetFile", _screenshot_include_preset);
@@ -1281,8 +1279,10 @@ void reshade::runtime::load_current_preset()
 }
 void reshade::runtime::save_current_preset() const
 {
-	ini_file &preset = ini_file::load_cache(_current_preset_path);
-
+	save_current_preset(ini_file::load_cache(_current_preset_path));
+}
+void reshade::runtime::save_current_preset(ini_file &preset) const
+{
 	// Build list of active techniques and effects
 	std::set<size_t> effect_list;
 	std::vector<std::string> technique_list;
@@ -1375,6 +1375,23 @@ void reshade::runtime::save_current_preset() const
 				break;
 			}
 		}
+	}
+}
+void reshade::runtime::export_current_preset(const char *path_in) const
+{
+	if (path_in == nullptr)
+		return;
+
+	std::filesystem::path path = std::filesystem::u8path(path_in);
+	if (ini_file *found = ini_file::find_cache(path); found == nullptr)
+	{
+		ini_file preset(path);
+		save_current_preset(preset);
+		preset.save();
+	}
+	else
+	{
+		save_current_preset(*found);
 	}
 }
 
@@ -1889,7 +1906,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		}
 	}
 
-	if ( compiled && (preprocessed || source_cached))
+	if (compiled && (preprocessed || source_cached))
 	{
 		if (permutation.assembly.empty())
 		{
@@ -2245,7 +2262,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 	else
 		_reload_remaining_effects = 0; // Force effect initialization in 'update_effects'
 
-	if ( compiled && (preprocessed || source_cached))
+	if (compiled && (preprocessed || source_cached))
 	{
 		if (effect.errors.empty())
 			log::message(log::level::info, "Successfully compiled '%s'%s in %f s.", source_file.u8string().c_str(), permutation_index == 0 ? "" : " permutation", std::chrono::duration_cast<std::chrono::milliseconds>(time_load_finished - time_load_started).count() * 1e-3f);
@@ -4975,7 +4992,7 @@ void reshade::runtime::save_screenshot(const std::string_view postfix)
 					break;
 				// Implicit HDR PNG when running in HDR
 				case 3:
-					save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str(), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format, _screenshot_clipboard_copy);
+					save_success = sk_hdr_png::write_image_to_disk(screenshot_path.c_str(), _width, _height, pixels.data(), _screenshot_hdr_bits, _back_buffer_format);
 					break;
 				}
 

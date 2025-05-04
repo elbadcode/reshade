@@ -81,7 +81,11 @@ std::filesystem::path get_base_path(bool default_to_target_executable_path = fal
 	if (ini_file::load_cache(g_target_executable_path.parent_path() / L"ReShade.ini").get("INSTALL", "BasePath", result) &&
 		resolve_env_path(result))
 		return result;
-
+	// Allow injection without needing a config file in game directory
+	else if (g_reshade_dll_path.parent_path() != g_target_executable_path.parent_path()) {
+		if (ini_file::load_cache(g_reshade_dll_path.parent_path() / L"ReShade.ini"))
+					return g_reshade_dll_path.parent_path();
+	}
 	WCHAR buf[4096];
 	if (GetEnvironmentVariableW(L"RESHADE_BASE_PATH_OVERRIDE", buf, ARRAYSIZE(buf)) &&
 		resolve_env_path(result = buf))
